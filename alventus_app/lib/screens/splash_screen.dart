@@ -5,6 +5,7 @@ import '../services/odoo_service.dart';
 import '../services/storage_service.dart';
 import '../services/sync_service.dart';
 import '../widgets/update/update_checker.dart';
+import '../widgets/changelog/changelog_dialog.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
 
@@ -60,16 +61,24 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _checkSession() async {
     print('🔍 _checkSession: Iniciando...');
 
-    // Comprueba en segundo plano si hay una versión nueva de la app
-    // (solo tiene efecto en Android). No se espera a que termine, para
-    // no retrasar el arranque: el aviso aparece cuando responda el
-    // servidor, sobre lo que sea que haya en pantalla en ese momento
-    // (login u home), gracias al navigator global.
+    // Comprueba en segundo plano (a) si hay una versión nueva de la app
+    // para descargar (solo tiene efecto en Android) y (b) si hay
+    // novedades sin ver desde la última vez que se abrió (todas las
+    // plataformas). No se espera a que termine, para no retrasar el
+    // arranque: los avisos aparecen sobre lo que sea que haya en
+    // pantalla en ese momento (login u home), gracias al navigator
+    // global.
     unawaited(Future(() async {
       await Future.delayed(const Duration(seconds: 2));
       final ctx = rootNavigatorKey.currentContext;
       if (ctx != null) {
         await checkAndPromptUpdate(ctx);
+      }
+      // Se comprueba después del aviso de actualización (si lo hay) y
+      // no antes, para no mostrar dos diálogos encima uno del otro.
+      final ctx2 = rootNavigatorKey.currentContext;
+      if (ctx2 != null) {
+        await checkAndShowChangelog(ctx2);
       }
     }));
 
