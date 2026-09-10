@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/sync_service.dart';
@@ -203,7 +204,7 @@ class HomeScreen extends StatelessWidget {
                       SizedBox(height: 6),
                       _ContactLine(label: 'quejas', value: 'yo_paso@con_cariño.es'),
                       SizedBox(height: 6),
-                      _ContactLine(label: 'sugerencias', value: 'lourido2003@yahoo.es'),
+                      _ContactLine(label: 'sugerencias', value: 'lourido2003@yahoo.es', isEmailLink: true),
                       SizedBox(height: 6),
                       _ContactLine(label: 'versión', value: '0.0.0'),
                     ],
@@ -347,11 +348,39 @@ class HomeScreen extends StatelessWidget {
 class _ContactLine extends StatelessWidget {
   final String label;
   final String value;
+  // Si es true, [value] es una dirección de email: al tocarla se abre la
+  // app de correo del dispositivo con esa dirección ya puesta en "Para".
+  final bool isEmailLink;
 
-  const _ContactLine({required this.label, required this.value});
+  const _ContactLine({
+    required this.label,
+    required this.value,
+    this.isEmailLink = false,
+  });
+
+  Future<void> _openMailApp(BuildContext context) async {
+    final uri = Uri(scheme: 'mailto', path: value);
+    final opened = await launchUrl(uri);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo abrir el correo. Escríbenos a $value')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final valueText = Text(
+      value,
+      maxLines: 1,
+      softWrap: false,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 13,
+        decoration: isEmailLink ? TextDecoration.underline : TextDecoration.none,
+      ),
+    );
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -376,15 +405,12 @@ class _ContactLine extends StatelessWidget {
           child: FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              maxLines: 1,
-              softWrap: false,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-              ),
-            ),
+            child: isEmailLink
+                ? InkWell(
+                    onTap: () => _openMailApp(context),
+                    child: valueText,
+                  )
+                : valueText,
           ),
         ),
       ],
