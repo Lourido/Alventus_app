@@ -258,7 +258,9 @@ class SyncService {
   }
 
   /// Descarga tareas de un proyecto y las guarda localmente
-  Future<void> syncTasks(int projectId) async {
+  /// Devuelve `true`/`false` igual que [syncReferenceContacts]: indica si
+  /// de verdad se ha podido traer de Odoo, no solo si había conexión.
+  Future<bool> syncTasks(int projectId) async {
     print('🔄 Sincronizando tareas del proyecto $projectId...');
 
     // Antes de traer lo que hay en Odoo, se envían primero los cambios
@@ -294,8 +296,10 @@ class SyncService {
 
       await _localDb.saveTasks(tasksToSave, projectId: projectId);
       print('✅ ${tasksToSave.length} tareas sincronizadas para el proyecto $projectId');
+      return true;
     } else {
       print('❌ Error al sincronizar tareas: ${result['error']}');
+      return false;
     }
   }
 
@@ -330,7 +334,12 @@ class SyncService {
 
   /// Descarga los contactos de referencia de un viaje y los guarda
   /// localmente (para poder verlos sin conexión).
-  Future<void> syncReferenceContacts(int projectId) async {
+  /// Devuelve `true` si se ha podido traer y guardar la copia de Odoo,
+  /// `false` si ha fallado (p.ej. sin conexión real aunque lo pareciera, o
+  /// un error del servidor); en ese caso la copia local se queda tal cual
+  /// estaba, sin avisar por sí sola, así que quien la llame debe
+  /// comprobar el resultado si necesita saber si los datos son de fiar.
+  Future<bool> syncReferenceContacts(int projectId) async {
     print('🔄 Sincronizando contactos de referencia del proyecto $projectId...');
 
     final result = await _odooService.fetchProjectReferenceContacts(projectId);
@@ -353,14 +362,17 @@ class SyncService {
 
       await _localDb.saveReferenceContacts(contactsToSave, projectId: projectId);
       print('✅ ${contactsToSave.length} contactos sincronizados para el proyecto $projectId');
+      return true;
     } else {
       print('❌ Error al sincronizar contactos: ${result['error']}');
+      return false;
     }
   }
 
   /// Descarga los archivos de ruta de un viaje y los guarda localmente
   /// (solo metadata; el contenido del archivo se descarga bajo demanda).
-  Future<void> syncRouteFiles(int projectId) async {
+  /// Devuelve `true`/`false` igual que [syncReferenceContacts].
+  Future<bool> syncRouteFiles(int projectId) async {
     print('🔄 Sincronizando archivos de ruta del proyecto $projectId...');
 
     final result = await _odooService.fetchProjectRouteFiles(projectId);
@@ -381,14 +393,17 @@ class SyncService {
 
       await _localDb.saveRouteFiles(filesToSave, projectId: projectId);
       print('✅ ${filesToSave.length} archivos de ruta sincronizados para el proyecto $projectId');
+      return true;
     } else {
       print('❌ Error al sincronizar archivos de ruta: ${result['error']}');
+      return false;
     }
   }
 
   /// Descarga los documentos de un viaje y los guarda localmente (solo
   /// metadata; el contenido del archivo se descarga bajo demanda).
-  Future<void> syncProjectDocuments(int projectId) async {
+  /// Devuelve `true`/`false` igual que [syncReferenceContacts].
+  Future<bool> syncProjectDocuments(int projectId) async {
     print('🔄 Sincronizando documentos del proyecto $projectId...');
 
     final result = await _odooService.fetchProjectAttachments(projectId);
@@ -410,8 +425,10 @@ class SyncService {
 
       await _localDb.saveProjectDocuments(docsToSave, projectId: projectId);
       print('✅ ${docsToSave.length} documentos sincronizados para el proyecto $projectId');
+      return true;
     } else {
       print('❌ Error al sincronizar documentos: ${result['error']}');
+      return false;
     }
   }
 
@@ -446,7 +463,8 @@ class SyncService {
 
   /// Descarga las fotos de grupo de un viaje y las guarda localmente
   /// (solo metadata; la imagen en sí se descarga bajo demanda).
-  Future<void> syncProjectPhotos(int projectId) async {
+  /// Devuelve `true`/`false` igual que [syncReferenceContacts].
+  Future<bool> syncProjectPhotos(int projectId) async {
     print('🔄 Sincronizando fotos del proyecto $projectId...');
 
     final result = await _odooService.fetchProjectPhotos(projectId);
@@ -466,8 +484,10 @@ class SyncService {
 
       await _localDb.saveProjectPhotos(photosToSave, projectId: projectId);
       print('✅ ${photosToSave.length} fotos sincronizadas para el proyecto $projectId');
+      return true;
     } else {
       print('❌ Error al sincronizar fotos: ${result['error']}');
+      return false;
     }
   }
 

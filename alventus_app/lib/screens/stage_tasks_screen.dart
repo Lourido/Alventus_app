@@ -154,8 +154,9 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     final hasConnection = await _syncService.checkConnectivity();
     if (!mounted) return;
 
+    var tasksSynced = true;
     if (hasConnection) {
-      await _syncService.syncTasks(widget.project.id);
+      tasksSynced = await _syncService.syncTasks(widget.project.id);
     }
 
     final rows = await _localDb.getTasks(widget.project.id);
@@ -204,6 +205,15 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       _stageAttachments = stageAttachments;
       _isLoading = false;
     });
+
+    if (hasConnection && !tasksSynced && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Hay conexión, pero no se ha podido actualizar con Odoo. Puede que estés viendo datos guardados.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
   }
 
   Task _taskFromRow(Map<String, dynamic> row) {

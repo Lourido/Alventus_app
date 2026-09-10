@@ -144,7 +144,7 @@ class _StagesScreenState extends State<StagesScreen> {
       return;
     }
 
-    await _syncService.syncTasks(widget.project.id);
+    final tasksSynced = await _syncService.syncTasks(widget.project.id);
 
     final stagesResult = await _odooService.fetchProjectStages(widget.project.id);
     final rows = await _localDb.getTasks(widget.project.id);
@@ -153,12 +153,14 @@ class _StagesScreenState extends State<StagesScreen> {
 
     if (stagesResult['success'] != true) {
       // Si falla la consulta de etapas reales, se recurre al agrupado
-      // local como red de seguridad (mismo comportamiento de antes).
+      // local como red de seguridad (mismo comportamiento de antes), pero
+      // se avisa: hay conexión y aun así no se ha podido traer de Odoo.
       setState(() {
         _isOffline = false;
         _stages = _buildGroupsFromLocalTasksOnly(rows);
         _isLoading = false;
       });
+      _warnSyncFailed();
       return;
     }
 
@@ -211,6 +213,20 @@ class _StagesScreenState extends State<StagesScreen> {
       _stages = stageGroups;
       _isLoading = false;
     });
+
+    if (!tasksSynced) _warnSyncFailed();
+  }
+
+  /// Avisa de que había conexión pero no se ha podido actualizar del todo
+  /// con Odoo (así que puede que se esté viendo información guardada).
+  void _warnSyncFailed() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Hay conexión, pero no se ha podido actualizar todo con Odoo. Puede que estés viendo datos guardados.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
   }
 
   /// Respaldo para el modo offline: agrupa solo a partir de las tareas

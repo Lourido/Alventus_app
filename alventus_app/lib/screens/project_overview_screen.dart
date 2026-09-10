@@ -79,37 +79,55 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       _errorMessage = null;
     });
 
+    // Si hay conexión pero alguna de las sincronizaciones de abajo falla
+    // (p.ej. un error puntual del servidor), no se debe fallar en
+    // silencio: se avisa después de cargar para que quede claro que lo
+    // que se ve puede no ser lo último de Odoo.
+    var syncFailedWhileOnline = false;
+
     try {
       final hasConnection = await _syncService.checkConnectivity();
 
       if (hasConnection) {
         // Con conexión: sincroniza todo con Odoo (guarda en la base local
-        // de paso) antes de leer, para tener los datos más frescos.
-        await Future.wait([
-          _syncService.syncReferenceContacts(widget.project.id),
-          _syncService.syncRouteFiles(widget.project.id),
-          _syncService.syncProjectDocuments(widget.project.id),
-          _syncService.syncProjectPhotos(widget.project.id),
-          _odooService.executeKw(
-            model: 'project.project',
-            method: 'read',
-            args: [
-              [widget.project.id],
-              ['date_start', 'date'],
-            ],
-          ).then((datesResult) {
-            if (datesResult['success'] == true) {
-              final records = datesResult['result'] as List<dynamic>;
-              if (records.isNotEmpty) {
-                final rec = records[0] as Map<String, dynamic>;
-                final rawStart = rec['date_start'];
-                final rawEnd = rec['date'];
-                _dateStart = (rawStart == false || rawStart == null) ? null : rawStart.toString();
-                _dateEnd = (rawEnd == false || rawEnd == null) ? null : rawEnd.toString();
-              }
+        // de paso) antes de leer, para tener los datos más frescos. Se
+        // lanzan todas a la vez (concurrentes) y se guarda cada Future por
+        // separado para poder comprobar, una por una, si de verdad se ha
+        // podido traer de Odoo o si se ha quedado con lo que ya hubiera.
+        final contactsFuture = _syncService.syncReferenceContacts(widget.project.id);
+        final routeFilesFuture = _syncService.syncRouteFiles(widget.project.id);
+        final documentsFuture = _syncService.syncProjectDocuments(widget.project.id);
+        final photosFuture = _syncService.syncProjectPhotos(widget.project.id);
+        final datesFuture = _odooService.executeKw(
+          model: 'project.project',
+          method: 'read',
+          args: [
+            [widget.project.id],
+            ['date_start', 'date'],
+          ],
+        ).then((datesResult) {
+          if (datesResult['success'] == true) {
+            final records = datesResult['result'] as List<dynamic>;
+            if (records.isNotEmpty) {
+              final rec = records[0] as Map<String, dynamic>;
+              final rawStart = rec['date_start'];
+              final rawEnd = rec['date'];
+              _dateStart = (rawStart == false || rawStart == null) ? null : rawStart.toString();
+              _dateEnd = (rawEnd == false || rawEnd == null) ? null : rawEnd.toString();
+              return true;
             }
-          }),
+          }
+          return false;
+        });
+
+        final syncResults = await Future.wait([
+          contactsFuture,
+          routeFilesFuture,
+          documentsFuture,
+          photosFuture,
+          datesFuture,
         ]);
+        syncFailedWhileOnline = syncResults.contains(false);
       }
 
       // Sin conexión o con ella, siempre se lee de la base de datos local:
@@ -130,6 +148,15 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
         _photos = photoRows;
         _isLoading = false;
       });
+
+      if (syncFailedWhileOnline && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Hay conexión, pero no se ha podido actualizar todo con Odoo. Puede que estés viendo datos guardados.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
