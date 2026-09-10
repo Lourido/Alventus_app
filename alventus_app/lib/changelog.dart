@@ -40,4 +40,15 @@ const List<ChangelogEntry> kChangelog = [
       'Arreglado el aviso de "WhatsApp no instalado" al compartir un viaje.',
     ],
   ),
+  ChangelogEntry(
+    version: 2,
+    date: '10 de septiembre de 2026',
+    changes: [
+      'Cuando la app tiene novedades, aparece un aviso como este al abrirla.',
+      'En iPhone, el micrófono de dictado se ve desactivado con una explicación (es un problema de Safari, no de la app), en vez de no funcionar sin más.',
+      'Los contactos de referencia se pueden descargar al teléfono también desde el navegador.',
+      'Al intentar importar contactos del iPhone, se explica por qué no es posible en vez de no hacer nada.',
+      'En la lista de etapas, el nombre y la descripción de cada una se ven ahora con el mismo tamaño de letra.',
+    ],
+  ),
 ];
