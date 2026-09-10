@@ -1,3 +1,5 @@
+import '../utils/html_text.dart';
+
 class Task {
   final int id;
   final String name;
@@ -32,7 +34,7 @@ class Task {
     return Task(
       id: json['id'] as int? ?? 0,
       name: json['name']?.toString() ?? '',
-      description: _getString(json['description']),
+      description: stripHtmlToPlainText(_getString(json['description'])),
       projectId: json['project_id'] is List ? json['project_id'][0] as int : 0,
       stageName: stageId is List && stageId.length > 1 ? stageId[1].toString() : null,
       deadline: _getString(json['date_deadline']),

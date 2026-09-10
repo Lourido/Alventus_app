@@ -5,6 +5,7 @@ import '../services/odoo_service.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
+import '../utils/html_text.dart';
 import 'stage_tasks_screen.dart';
 
 /// Muestra las etapas (días) de un viaje. La lista de etapas sale
@@ -177,11 +178,11 @@ class _StagesScreenState extends State<StagesScreen> {
           ? '${minDate.day.toString().padLeft(2, '0')}/${minDate.month.toString().padLeft(2, '0')}/${minDate.year}'
           : null;
       // Odoo devuelve `false` (no null ni "") cuando el campo Text está
-      // vacío, así que hay que comprobarlo explícitamente.
+      // vacío, así que hay que comprobarlo explícitamente. stripHtmlToPlainText
+      // también quita etiquetas <p>/<br>... por si el campo llegara a
+      // guardarse alguna vez con HTML en vez de texto plano.
       final descriptionRaw = s['description'];
-      final description = (descriptionRaw is String && descriptionRaw.trim().isNotEmpty)
-          ? descriptionRaw.trim()
-          : null;
+      final description = descriptionRaw is String ? stripHtmlToPlainText(descriptionRaw) : null;
 
       return _StageGroup(
         stageId: s['id'] as int?,

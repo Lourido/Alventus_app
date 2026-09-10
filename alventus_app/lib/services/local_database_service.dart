@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../utils/html_text.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:path/path.dart';
@@ -333,7 +334,7 @@ class LocalDatabaseService {
         {
           'id': project['id'],
           'name': project['name'] ?? '',
-          'description': project['description'],
+          'description': stripHtmlToPlainText(project['description'] as String?),
           'user_name': project['user_name'],
           'partner_name': project['partner_name'],
           'date_start': project['date_start'],
@@ -422,7 +423,7 @@ class LocalDatabaseService {
         {
           'id': task['id'],
           'name': task['name'] ?? '',
-          'description': task['description'],
+          'description': stripHtmlToPlainText(task['description'] as String?),
           'project_id': task['project_id'],
           'stage_name': task['stage_name'],
           'deadline': task['deadline'],
@@ -748,7 +749,7 @@ class LocalDatabaseService {
           'id': f['id'],
           'project_id': f['project_id'],
           'file_name': f['file_name'] ?? '',
-          'description': f['description'],
+          'description': stripHtmlToPlainText(f['description'] as String?),
           'sequence': f['sequence'] ?? 0,
           'last_sync': DateTime.now().toIso8601String(),
         },

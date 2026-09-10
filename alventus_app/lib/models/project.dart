@@ -1,3 +1,5 @@
+import '../utils/html_text.dart';
+
 class Project {
   final int id;
   final String name;
@@ -23,7 +25,7 @@ class Project {
     String? dateStart,
     String? dateEnd,
     this.taskCount = 0,
-  })  : description = _clean(description),
+  })  : description = stripHtmlToPlainText(_clean(description)),
         userName = _clean(userName),
         partnerName = _clean(partnerName),
         dateStart = _clean(dateStart),
