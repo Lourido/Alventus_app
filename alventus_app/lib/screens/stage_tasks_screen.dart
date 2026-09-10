@@ -1051,11 +1051,14 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
               // aprovecha todo el ancho del recuadro. El icono de arrastrar
               // (a la derecha) reordena la tarea dentro de la etapa.
               title: Text(task.name),
-              trailing: ReorderableDragStartListener(
+              trailing: ReorderableDelayedDragStartListener(
                 index: index,
                 child: const Padding(
                   padding: EdgeInsets.all(8),
-                  child: Icon(Icons.drag_handle),
+                  child: Tooltip(
+                    message: 'Mantén pulsado y arrastra para reordenar',
+                    child: Icon(Icons.drag_handle),
+                  ),
                 ),
               ),
               onTap: () {

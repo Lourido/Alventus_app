@@ -726,11 +726,14 @@ class _StagesScreenState extends State<StagesScreen> {
                     tooltip: 'Borrar etapa',
                     onPressed: () => _confirmDeleteStage(stage),
                   ),
-                  ReorderableDragStartListener(
+                  ReorderableDelayedDragStartListener(
                     index: index,
                     child: const Padding(
                       padding: EdgeInsets.all(8),
-                      child: Icon(Icons.drag_handle),
+                      child: Tooltip(
+                        message: 'Mantén pulsado y arrastra para reordenar',
+                        child: Icon(Icons.drag_handle),
+                      ),
                     ),
                   ),
                 ],
