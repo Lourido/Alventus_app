@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'odoo_service.dart';
 import 'local_database_service.dart';
@@ -45,11 +46,24 @@ class SyncService {
 
   /// Verifica si hay conexión a internet
   bool _checkConnectivity(List<ConnectivityResult> results) {
+    // En la versión web, el plugin connectivity_plus puede devolver "sin
+    // conexión" aunque sí la haya (es un problema conocido del plugin en
+    // web, más aún en Safari, que ni siquiera soporta la API de la que
+    // depende). Fiarse de ese "no hay conexión" en web hacía que la app
+    // se quedara mostrando datos guardados sin avisar, aunque hubiera
+    // conexión de verdad. En vez de eso, en web se asume que sí la hay y
+    // es el propio intento de hablar con Odoo el que decide si falla de
+    // verdad (y entonces sí se avisa, como en el resto de la app).
+    if (kIsWeb) return true;
     return results.any((result) => result != ConnectivityResult.none);
   }
 
   /// Verifica la conectividad actual
   Future<bool> checkConnectivity() async {
+    if (kIsWeb) {
+      _isOnline = true;
+      return true;
+    }
     final results = await _connectivity.checkConnectivity();
     _isOnline = _checkConnectivity(results);
     return _isOnline;
