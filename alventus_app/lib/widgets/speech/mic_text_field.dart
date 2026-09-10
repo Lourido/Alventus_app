@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'speech_service.dart';
 import 'tts_service.dart';
@@ -117,6 +119,15 @@ class _MicTextFieldState extends State<MicTextField> {
   int _insertStart = 0;
   int _lastDictatedLength = 0;
 
+  // Si tras empezar a escuchar pasan varios segundos sin que llegue NINGÚN
+  // resultado (ni siquiera provisional), lo más probable es que el
+  // reconocimiento de voz no esté funcionando de verdad en este navegador
+  // (problema conocido de Safari/iOS: el micrófono se activa pero el motor
+  // nunca devuelve texto) en vez de que el usuario simplemente no haya
+  // dicho nada todavía. Este timer detecta ese caso para avisar en vez de
+  // quedarse "escuchando" en silencio sin que el usuario sepa por qué.
+  Timer? _noResultsTimer;
+
   @override
   void initState() {
     super.initState();
@@ -134,6 +145,7 @@ class _MicTextFieldState extends State<MicTextField> {
 
   @override
   void dispose() {
+    _noResultsTimer?.cancel();
     _effectiveFocusNode.removeListener(_handleFocusChange);
     _internalFocusNode?.dispose();
     SpeechService.instance.stopListening(_listenerId);
@@ -176,6 +188,7 @@ class _MicTextFieldState extends State<MicTextField> {
 
   Future<void> _toggleListening() async {
     if (_isListening) {
+      _noResultsTimer?.cancel();
       await SpeechService.instance.stopListening(_listenerId);
       setState(() => _isListening = false);
       return;
@@ -206,18 +219,25 @@ class _MicTextFieldState extends State<MicTextField> {
       // defecto en vez de fiarse del idioma del sistema del teléfono.
       localeId: widget.localeId ?? 'es_ES',
       onPartial: (text, isFinal) {
+        // Ha llegado algún resultado de verdad: el reconocimiento SÍ
+        // funciona en este navegador, así que se cancela el aviso de
+        // "no ha funcionado" para que no salte de más.
+        if (text.isNotEmpty) _noResultsTimer?.cancel();
         _applyDictatedText(text, isFinal: isFinal);
         if (isFinal && mounted) {
           setState(() => _isListening = false);
         }
       },
       onDone: () {
+        _noResultsTimer?.cancel();
         if (mounted) setState(() => _isListening = false);
       },
     );
 
     if (started && mounted) {
       setState(() => _isListening = true);
+      _noResultsTimer?.cancel();
+      _noResultsTimer = Timer(const Duration(seconds: 6), _handleNoResultsTimeout);
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -228,6 +248,30 @@ class _MicTextFieldState extends State<MicTextField> {
         ),
       );
     }
+  }
+
+  /// Se llama si han pasado varios segundos escuchando sin recibir NINGÚN
+  /// resultado: para de escuchar y avisa de que el dictado no está
+  /// funcionando en este navegador (problema conocido en Safari/iPhone,
+  /// donde el micrófono se activa pero el reconocimiento de voz no
+  /// devuelve texto), en vez de dejar el icono en rojo indefinidamente
+  /// sin ninguna explicación.
+  void _handleNoResultsTimeout() {
+    if (!mounted || !_isListening || _lastDictatedLength > 0) return;
+
+    SpeechService.instance.stopListening(_listenerId);
+    setState(() => _isListening = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'El dictado por voz no ha reconocido nada. En Safari de iPhone '
+          'el dictado a veces no funciona (es un problema conocido de '
+          'Safari, no de esta app); puedes escribir el texto a mano.',
+        ),
+        duration: Duration(seconds: 6),
+      ),
+    );
   }
 
   /// Aplica el fragmento dictado, reemplazando únicamente la "ventana"
