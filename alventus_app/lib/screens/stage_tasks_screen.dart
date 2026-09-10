@@ -447,6 +447,73 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     await _loadTasks();
   }
 
+  /// Confirmar antes de borrar una tarea. Mismo patrón que ya se usaba
+  /// para borrar una tarea (con conexión: se borra directamente en
+  /// Odoo; sin conexión: se borra en local y se añade a la cola de
+  /// cambios pendientes para cuando vuelva la conexión).
+  void _confirmDeleteTask(Task task) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Borrar tarea'),
+          content: Text('¿Seguro que quieres borrar la tarea "${task.name}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+
+                final hasConnection = await _syncService.checkConnectivity();
+
+                if (hasConnection) {
+                  final result = await _odooService.deleteTask(task.id);
+
+                  if (!mounted) return;
+
+                  if (result['success'] == true) {
+                    await _localDb.deleteTask(task.id);
+                    _loadTasks();
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(result['error'] ?? 'Error al borrar tarea'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } else {
+                  await _localDb.deleteTask(task.id);
+                  await _localDb.addPendingChange(
+                    model: 'project.task',
+                    action: 'delete',
+                    recordId: task.id,
+                  );
+
+                  if (!mounted) return;
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Tarea borrada localmente. Se sincronizará cuando haya conexión.'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+
+                  _loadTasks();
+                }
+              },
+              child: const Text('Borrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // ---------------------------------------------------------------------
   // CREAR TAREA
   // ---------------------------------------------------------------------
@@ -1247,6 +1314,12 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
                       ),
                       onPressed: index == _taskRows.length - 1 ? null : () => _moveTaskTo(index, index + 1),
                     ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      tooltip: 'Borrar tarea',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _confirmDeleteTask(_taskFromRow(_taskRows[index])),
+                    ),
                   ],
                 ),
               );
@@ -1261,15 +1334,28 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
               return _buildTaskCard(
                 index,
                 key: ValueKey(row['id']),
-                trailing: ReorderableDelayedDragStartListener(
-                  index: index,
-                  child: const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Tooltip(
-                      message: 'Mantén pulsado y arrastra para reordenar',
-                      child: Icon(Icons.drag_handle),
+                // Arrastrando este icono se reordena; el botón de
+                // borrar se mantiene aparte, igual que en la lista de
+                // etapas.
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      tooltip: 'Borrar tarea',
+                      onPressed: () => _confirmDeleteTask(_taskFromRow(row)),
                     ),
-                  ),
+                    ReorderableDelayedDragStartListener(
+                      index: index,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Tooltip(
+                          message: 'Mantén pulsado y arrastra para reordenar',
+                          child: Icon(Icons.drag_handle),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },

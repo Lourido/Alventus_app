@@ -378,6 +378,8 @@ class _ContactLine extends StatelessWidget {
         color: Colors.white,
         fontSize: 13,
         decoration: isEmailLink ? TextDecoration.underline : TextDecoration.none,
+        fontWeight: isEmailLink ? FontWeight.bold : FontWeight.normal,
+        fontStyle: isEmailLink ? FontStyle.italic : FontStyle.normal,
       ),
     );
 

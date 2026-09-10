@@ -1,24 +1,32 @@
 import 'dart:convert';
+import 'dart:js_interop';
 import 'dart:typed_data';
-import 'package:url_launcher/url_launcher.dart';
 
-/// Abre en una pestaña nueva del navegador unos bytes ya descargados.
+/// Descarga en Flutter Web unos bytes ya obtenidos, usando un Blob real
+/// y un enlace `<a download>` (ver web/file_saver.js).
 ///
-/// Es la alternativa, solo para Flutter Web, al flujo nativo de
-/// "guardar en un archivo temporal + open_filex" que se usa en
-/// Android/iOS: en el navegador no existe el concepto de "abrir con la
-/// app del sistema", así que en su lugar se construye una URL de datos
-/// (data:) con el contenido en base64 y se le pide al navegador que la
-/// abra; según el tipo de archivo, el navegador la mostrará (PDF,
-/// imágenes...) o la descargará (Word, Excel, zip...).
+/// Sustituye al mecanismo anterior, basado en una URL de datos (`data:`)
+/// abierta con `url_launcher`, que en iPhone/Safari fallaba en dos casos
+/// frecuentes: archivos grandes (Safari limita el tamaño de las URLs de
+/// datos abiertas en pestaña nueva) y cuando pasaba algo de tiempo entre
+/// el toque del usuario y la apertura -- por ejemplo, mientras se
+/// descargaba el archivo de Odoo -- caso en el que Safari bloqueaba la
+/// apertura en silencio, como si fuera un pop-up no solicitado. El Blob
+/// + `<a download>` no tiene ninguno de los dos problemas.
 ///
-/// Devuelve true si el navegador aceptó abrir la URL.
+/// Devuelve true si el navegador aceptó la descarga.
 Future<bool> openBytesOnWeb(Uint8List bytes, String fileName) async {
   final mimeType = _guessMimeType(fileName);
   final base64Data = base64Encode(bytes);
-  final uri = Uri.parse('data:$mimeType;base64,$base64Data');
-  return launchUrl(uri, mode: LaunchMode.platformDefault);
+  try {
+    return _saveBytesAsFile(base64Data.toJS, mimeType.toJS, fileName.toJS);
+  } catch (_) {
+    return false;
+  }
 }
+
+@JS('saveBytesAsFile')
+external bool _saveBytesAsFile(JSString base64Data, JSString mimeType, JSString fileName);
 
 String _guessMimeType(String fileName) {
   final dotIndex = fileName.lastIndexOf('.');
