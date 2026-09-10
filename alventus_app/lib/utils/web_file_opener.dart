@@ -55,6 +55,8 @@ String _guessMimeType(String fileName) {
       return 'text/csv';
     case 'zip':
       return 'application/zip';
+    case 'vcf':
+      return 'text/vcard';
     case 'gpx':
       return 'application/gpx+xml';
     case 'kml':

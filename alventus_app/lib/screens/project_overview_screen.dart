@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import '../utils/web_file_opener.dart';
+import '../utils/vcard.dart';
 import '../services/odoo_service.dart';
 import '../services/sync_service.dart';
 import '../services/local_database_service.dart';
@@ -405,15 +406,24 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
 
 
   Future<void> _showAddContactOptions() async {
+    // Import de la agenda del teléfono: en la app nativa usa
+    // flutter_contacts (funciona en Android e iOS instalados desde
+    // tienda). En el navegador no existe forma de leerla en iPhone
+    // (Safari no lo permite, sea cual sea el motivo), así que ahí se
+    // ofrece el botón igualmente pero explicando por qué no funciona,
+    // en vez de dejar que se intente y falle sin más. En Android/web
+    // existe en teoría una API del navegador para esto (a diferencia de
+    // iPhone), pero todavía no está implementada aquí -- de momento se
+    // trata igual que el resto de navegadores de escritorio: solo
+    // creación manual.
+    final isIOSWeb = kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) {
         return SafeArea(
           child: Wrap(
             children: [
-              // La importación desde la agenda del teléfono usa
-              // flutter_contacts, que no funciona en el navegador: en web
-              // solo se ofrece la creación manual.
               if (!kIsWeb) ...[
                 ListTile(
                   leading: const Icon(Icons.contact_phone),
@@ -431,6 +441,15 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
                     _pickMultipleFromPhoneContacts();
                   },
                 ),
+              ] else if (isIOSWeb) ...[
+                ListTile(
+                  leading: const Icon(Icons.contact_phone),
+                  title: const Text('Importar contactos del teléfono'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showIOSContactImportNotSupported();
+                  },
+                ),
               ],
               ListTile(
                 leading: const Icon(Icons.person_add),
@@ -444,6 +463,34 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
           ),
         );
       },
+    );
+  }
+
+  /// En iPhone, Safari no ofrece ninguna forma de que una página web lea
+  /// los contactos guardados en el teléfono. No es un permiso que se
+  /// pueda conceder ni algo que dependa de esta app: es una limitación
+  /// del propio Safari, así que en vez de dejar que el usuario lo
+  /// intente y falle sin explicación, se le cuenta directamente.
+  void _showIOSContactImportNotSupported() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('No se puede leer la agenda del iPhone'),
+        content: const Text(
+          'Lo sentimos: en el iPhone, Safari no permite que ninguna '
+          'página web (incluida esta) lea los contactos guardados en el '
+          'teléfono. Es una limitación del propio Safari, no de esta '
+          'app, y no depende de nosotros arreglarlo.\n\n'
+          'Puedes crear el contacto a mano, o copiar el nombre/teléfono '
+          'desde la app Contactos del iPhone y pegarlo aquí.',
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Vale, entendido'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -698,6 +745,36 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       _loadAll();
     } else {
       _showSnackBar(result['error']?.toString() ?? 'No se pudo añadir el contacto', isError: true);
+    }
+  }
+
+  /// Versión web de "descargar un contacto a mis contactos": en vez de
+  /// escribir en la agenda con flutter_contacts (que no funciona en el
+  /// navegador), genera un archivo vCard (.vcf) y le pide al navegador
+  /// que lo abra -- tanto iPhone/Safari como Android/Chrome saben
+  /// ofrecer "añadir a contactos" a partir de un .vcf.
+  Future<void> _downloadContactToPhoneWeb(ReferenceContact contact) async {
+    final vcard = buildVCard([contact]);
+    final bytes = Uint8List.fromList(utf8.encode(vcard));
+    final opened = await openBytesOnWeb(bytes, '${contact.name}.vcf');
+    if (!opened && mounted) {
+      _showSnackBar('No se pudo abrir el contacto', isError: true);
+    }
+  }
+
+  /// Igual que [_downloadContactToPhoneWeb] pero con todos los contactos
+  /// de referencia del viaje en un único archivo .vcf (los sistemas de
+  /// contactos saben importar varios de golpe desde un mismo archivo).
+  Future<void> _downloadAllContactsToPhoneWeb() async {
+    if (_contacts.isEmpty) {
+      _showSnackBar('No hay contactos para descargar');
+      return;
+    }
+    final vcard = buildVCard(_contacts);
+    final bytes = Uint8List.fromList(utf8.encode(vcard));
+    final opened = await openBytesOnWeb(bytes, 'contactos.vcf');
+    if (!opened && mounted) {
+      _showSnackBar('No se pudieron abrir los contactos', isError: true);
     }
   }
 
@@ -2124,17 +2201,15 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       onAdd: _showAddContactOptions,
       isEmpty: _contacts.isEmpty,
       emptyLabel: 'No hay contactos de referencia todavía.',
-      // Descargar a la agenda del teléfono tampoco tiene sentido en el
-      // navegador.
-      extraHeaderActions: kIsWeb
-          ? const []
-          : [
-              IconButton(
-                icon: const Icon(Icons.download),
-                tooltip: 'Descargar todos a mis contactos',
-                onPressed: _downloadAllContactsToPhone,
-              ),
-            ],
+      // En web se descarga como vCard (.vcf) en vez de escribir
+      // directamente en la agenda, que ahí no es posible.
+      extraHeaderActions: [
+        IconButton(
+          icon: const Icon(Icons.download),
+          tooltip: kIsWeb ? 'Descargar todos como vCard' : 'Descargar todos a mis contactos',
+          onPressed: kIsWeb ? _downloadAllContactsToPhoneWeb : _downloadAllContactsToPhone,
+        ),
+      ],
       children: _contacts.map((contact) {
         return ListTile(
           contentPadding: EdgeInsets.zero,
@@ -2147,12 +2222,13 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (!kIsWeb)
-                IconButton(
-                  icon: const Icon(Icons.download, color: Colors.blue),
-                  tooltip: 'Guardar en mis contactos',
-                  onPressed: () => _downloadContactToPhone(contact),
-                ),
+              IconButton(
+                icon: const Icon(Icons.download, color: Colors.blue),
+                tooltip: kIsWeb ? 'Guardar como vCard' : 'Guardar en mis contactos',
+                onPressed: () => kIsWeb
+                    ? _downloadContactToPhoneWeb(contact)
+                    : _downloadContactToPhone(contact),
+              ),
               IconButton(
                 icon: const Icon(Icons.close, color: Colors.grey),
                 tooltip: 'Quitar de este viaje',
