@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/sync_service.dart';
+import '../services/odoo_service.dart';
+import 'login_screen.dart';
 import 'project_list_screen.dart';
 import 'create_trip_screen.dart';
 import 'share_trip_screen.dart';
@@ -39,6 +41,11 @@ class HomeScreen extends StatelessWidget {
                 ),
               );
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Cerrar sesión',
+            onPressed: () => _confirmLogout(context),
           ),
         ],
       ),
@@ -293,6 +300,46 @@ class HomeScreen extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  /// Pide confirmación y, si el usuario acepta, cierra la sesión: borra
+  /// las credenciales guardadas (modo offline incluido) y vuelve a la
+  /// pantalla de login, para que la próxima vez haya que volver a
+  /// escribir usuario y contraseña.
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cerrar sesión'),
+        content: const Text(
+          '¿Seguro que quieres cerrar sesión? La próxima vez que abras la '
+          'app tendrás que volver a iniciar sesión con tu usuario y '
+          'contraseña.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cerrar sesión'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await OdooService().logout();
+
+    if (!context.mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+      (route) => false,
     );
   }
 }
