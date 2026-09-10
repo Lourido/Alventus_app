@@ -12,6 +12,7 @@ import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
 import '../models/task.dart';
+import '../utils/html_text.dart';
 
 
 
@@ -90,6 +91,60 @@ bool _isValidTimeRange(TimeOfDay? from, TimeOfDay? to) {
   return toMinutes >= fromMinutes;
 }
 
+/// Nombre (y descripción, si la hay) de una etapa dentro de la lista
+/// ordenada del viaje, usados solo para poder moverse a la etapa
+/// siguiente/anterior sin pasar por la lista de "Etapas".
+class _StageNavEntry {
+  final String name;
+  final String? description;
+  _StageNavEntry(this.name, this.description);
+}
+
+/// Reconoce específicamente la etapa "Día 0", para que se ordene siempre
+/// la primera (mismo criterio que en stages_screen.dart: si se cambia
+/// ahí, hay que cambiarlo aquí también).
+bool _isDayZeroStageName(String name) {
+  return RegExp(r'^Día\s*0(\D|$)').hasMatch(name.trim());
+}
+
+/// Extrae la fecha del patrón "Día N - dd/mm/aaaa" (mismo patrón que en
+/// stages_screen.dart), o null si el nombre no lo sigue.
+final RegExp _stageNameDatePattern = RegExp(r'^Día\s*(\d+)\s*-\s*(\d{2})/(\d{2})/(\d{4})$');
+
+DateTime? _parseStageNameDate(String name) {
+  final match = _stageNameDatePattern.firstMatch(name.trim());
+  if (match == null) return null;
+  try {
+    return DateTime(
+      int.parse(match.group(4)!),
+      int.parse(match.group(3)!),
+      int.parse(match.group(2)!),
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Mismo orden que la lista de "Etapas" (stages_screen.dart): "Día 0"
+/// siempre primero, luego por fecha (a partir del propio nombre), y
+/// alfabético como último recurso si no hay fecha.
+void _sortStageNav(List<_StageNavEntry> items) {
+  items.sort((a, b) {
+    final aZero = _isDayZeroStageName(a.name);
+    final bZero = _isDayZeroStageName(b.name);
+    if (aZero && !bZero) return -1;
+    if (bZero && !aZero) return 1;
+    if (aZero && bZero) return 0;
+
+    final aDate = _parseStageNameDate(a.name);
+    final bDate = _parseStageNameDate(b.name);
+    if (aDate == null && bDate == null) return a.name.compareTo(b.name);
+    if (aDate == null) return 1;
+    if (bDate == null) return -1;
+    return aDate.compareTo(bDate);
+  });
+}
+
 class _StageTasksScreenState extends State<StageTasksScreen> {
   final OdooService _odooService = OdooService();
   final LocalDatabaseService _localDb = LocalDatabaseService();
@@ -106,6 +161,11 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   List<Map<String, dynamic>> _stageAttachments = [];
   int? _stageId;
 
+  // Lista ordenada de las etapas del viaje (igual que en la pantalla de
+  // "Etapas"), solo para poder moverse a la siguiente/anterior desde
+  // aquí sin volver atrás. Vacía mientras no se ha cargado todavía.
+  List<_StageNavEntry> _stageOrder = [];
+
   // Posición del botón flotante "Nueva tarea": el usuario lo puede
   // arrastrar para que no le tape tareas o adjuntos, y se recuerda entre
   // aperturas de la app.
@@ -117,6 +177,39 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   String? get _stageDateFromName {
     final match = RegExp(r'(\d{2}/\d{2}/\d{4})').firstMatch(widget.stageName);
     return match?.group(1);
+  }
+
+  int get _currentStageIndex => _stageOrder.indexWhere((e) => e.name == widget.stageName);
+
+  _StageNavEntry? get _previousStageNav {
+    final idx = _currentStageIndex;
+    if (idx <= 0) return null;
+    return _stageOrder[idx - 1];
+  }
+
+  _StageNavEntry? get _nextStageNav {
+    final idx = _currentStageIndex;
+    if (idx == -1 || idx >= _stageOrder.length - 1) return null;
+    return _stageOrder[idx + 1];
+  }
+
+  /// Sustituye esta pantalla por la de la etapa [target] (en vez de
+  /// apilarla encima), para poder seguir moviéndose de etapa en etapa
+  /// sin acumular pantallas en la pila de navegación: al volver atrás
+  /// desde cualquier etapa se va directo a la lista de "Etapas", no a la
+  /// etapa anterior visitada.
+  void _goToStage(_StageNavEntry? target) {
+    if (target == null) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => StageTasksScreen(
+          project: widget.project,
+          stageName: target.name,
+          stageDescription: target.description,
+        ),
+      ),
+    );
   }
 
   @override
@@ -146,6 +239,57 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     await prefs.setDouble(_fabOffsetDyKey, offset.dy);
   }
 
+  /// Carga (en segundo plano, sin bloquear la carga de tareas) el orden
+  /// de las etapas del viaje, para saber cuál es la anterior/siguiente.
+  /// Con conexión se trae en directo de Odoo (igual que en la lista de
+  /// "Etapas", así el orden coincide siempre); sin conexión se deduce de
+  /// los nombres de etapa que haya entre las tareas ya guardadas en el
+  /// teléfono (no hay etapas vacías en ese caso, pero es lo máximo que
+  /// se puede hacer sin conexión).
+  Future<void> _loadStageOrder({
+    required bool hasConnection,
+    required List<Map<String, dynamic>> allTaskRows,
+  }) async {
+    List<_StageNavEntry> order = [];
+
+    if (hasConnection) {
+      final stagesResult = await _odooService.fetchProjectStages(widget.project.id);
+      if (stagesResult['success'] == true) {
+        final stages = (stagesResult['result'] as List<dynamic>).cast<Map<String, dynamic>>();
+        order = stages
+            .map((s) {
+              final name = s['name']?.toString() ?? '';
+              final descRaw = s['description'];
+              final description = descRaw is String ? stripHtmlToPlainText(descRaw) : null;
+              return _StageNavEntry(name, description);
+            })
+            .where((e) => e.name.isNotEmpty)
+            .toList();
+      }
+    }
+
+    if (order.isEmpty) {
+      order = _stageOrderFromLocalTasks(allTaskRows);
+    }
+
+    _sortStageNav(order);
+
+    if (!mounted) return;
+    setState(() => _stageOrder = order);
+  }
+
+  /// Respaldo sin conexión: los nombres de etapa distintos que aparezcan
+  /// entre las tareas locales del viaje (sin descripción, no se guarda
+  /// localmente).
+  List<_StageNavEntry> _stageOrderFromLocalTasks(List<Map<String, dynamic>> rows) {
+    final names = <String>{};
+    for (final row in rows) {
+      final stageName = (row['stage_name'] as String?)?.trim();
+      if (stageName != null && stageName.isNotEmpty) names.add(stageName);
+    }
+    return names.map((n) => _StageNavEntry(n, null)).toList();
+  }
+
   Future<void> _loadTasks() async {
     setState(() {
       _isLoading = true;
@@ -161,6 +305,10 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
     final rows = await _localDb.getTasks(widget.project.id);
     if (!mounted) return;
+
+    // No se espera a que termine: no debe retrasar la carga de las
+    // tareas de esta etapa, que es lo primero que se ve.
+    _loadStageOrder(hasConnection: hasConnection, allTaskRows: rows);
 
     final filtered = rows.where((row) {
       final stageName = (row['stage_name'] as String?)?.trim();
@@ -940,18 +1088,30 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.stageName),
+            Text(widget.stageName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             Text(
               (widget.stageDescription != null && widget.stageDescription!.trim().isNotEmpty)
                   ? widget.stageDescription!.trim()
                   : 'Sin descripción',
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+              // Mismo tamaño de letra que el nombre de la etapa (arriba),
+              // solo sin negrita, para que se lea igual de bien.
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.normal),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            tooltip: 'Etapa anterior',
+            onPressed: _previousStageNav != null ? () => _goToStage(_previousStageNav) : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            tooltip: 'Etapa siguiente',
+            onPressed: _nextStageNav != null ? () => _goToStage(_nextStageNav) : null,
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: Icon(
