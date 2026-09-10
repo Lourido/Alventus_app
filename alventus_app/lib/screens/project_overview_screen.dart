@@ -17,6 +17,7 @@ import '../services/local_database_service.dart';
 import '../models/project.dart';
 import '../models/route_file.dart';
 import '../models/reference_contact.dart';
+import '../widgets/speech/mic_text_field.dart';
 import 'stages_screen.dart';
 import 'stage_task_matrix_screen.dart';
 import 'stage_tasks_screen.dart';
@@ -62,6 +63,12 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   String? _dateStart;
   String? _dateEnd;
 
+  // Nombre real leído de Odoo en el último _loadAll() (puede diferir de
+  // _displayName si se ha renombrado el viaje directamente en Odoo, sin
+  // pasar por el diálogo "Renombrar viaje" de la app). Se aplica dentro
+  // del setState de _loadAll(), igual que _dateStart/_dateEnd.
+  String? _fetchedDisplayName;
+
   @override
   void initState() {
     super.initState();
@@ -103,7 +110,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
           method: 'read',
           args: [
             [widget.project.id],
-            ['date_start', 'date'],
+            ['date_start', 'date', 'name'],
           ],
         ).then((datesResult) {
           if (datesResult['success'] == true) {
@@ -114,6 +121,14 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
               final rawEnd = rec['date'];
               _dateStart = (rawStart == false || rawStart == null) ? null : rawStart.toString();
               _dateEnd = (rawEnd == false || rawEnd == null) ? null : rawEnd.toString();
+              // Nombre real de Odoo: se guarda aparte y se aplica en el
+              // setState de abajo, para que si han renombrado el viaje
+              // directamente en Odoo (sin pasar por esta app) se vea
+              // reflejado aquí sin depender de la caché local.
+              final rawName = rec['name'];
+              if (rawName is String && rawName.trim().isNotEmpty) {
+                _fetchedDisplayName = rawName;
+              }
               return true;
             }
           }
@@ -146,6 +161,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
         _routeFiles = routeRows.map((row) => RouteFile.fromJson(row)).toList();
         _documents = documentRows;
         _photos = photoRows;
+        if (_fetchedDisplayName != null) _displayName = _fetchedDisplayName!;
         _isLoading = false;
       });
 
@@ -339,10 +355,8 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Renombrar viaje'),
-          content: TextField(
+          content: MicTextField(
             controller: controller,
-            autofocus: true,
-            textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
               labelText: 'Nombre del viaje',
               border: OutlineInputBorder(),
