@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'speech_service.dart';
 import 'tts_service.dart';
@@ -392,15 +393,7 @@ class _MicTextFieldState extends State<MicTextField> {
                     icon: const Icon(Icons.keyboard_hide),
                     onPressed: () => _effectiveFocusNode.unfocus(),
                   ),
-                if (showMic)
-                  IconButton(
-                    tooltip: _isListening ? 'Detener dictado' : 'Dictar por voz',
-                    icon: Icon(
-                      _isListening ? Icons.mic : Icons.mic_none,
-                      color: _isListening ? widget.micActiveColor : widget.micColor,
-                    ),
-                    onPressed: _toggleListening,
-                  ),
+                if (showMic) _buildMicButton(),
               ],
             ),
           ],
@@ -432,12 +425,29 @@ class _MicTextFieldState extends State<MicTextField> {
     );
   }
 
-  /// Botón de micrófono (dictar), a la derecha. Si el campo ya tenía un
-  /// suffixIcon propio, se muestra junto a él en vez de sustituirlo.
-  /// Cuando el campo tiene el foco (el teclado está visible), se añade
-  /// también un botón para ocultarlo sin tener que tocar fuera del campo.
-  Widget _buildSuffixIcon(InputDecoration baseDecoration) {
-    final micButton = IconButton(
+  /// En iPhone (Safari/WebKit), el reconocimiento de voz de Flutter Web
+  /// no funciona -- es un fallo conocido y sin arreglar de la propia
+  /// Safari (no de esta app: en la app nativa de iOS sí funcionaba,
+  /// porque usaba el reconocimiento de voz del propio sistema en vez
+  /// del que ofrece el navegador). En vez de dejar que el usuario lo
+  /// intente y nunca reconozca nada, aquí se deshabilita directamente.
+  /// En el resto de plataformas (Android, app nativa, escritorio) sigue
+  /// funcionando igual que siempre.
+  bool get _micUnsupportedHere => kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  Widget _buildMicButton() {
+    if (_micUnsupportedHere) {
+      return IconButton(
+        tooltip:
+            'El dictado por voz no está disponible en Safari/iPhone '
+            '(es una limitación de Safari, no de esta app). Puedes '
+            'escribir el texto a mano.',
+        icon: Icon(Icons.mic_off, color: Colors.grey[400]),
+        onPressed: null,
+      );
+    }
+
+    return IconButton(
       tooltip: _isListening ? 'Detener dictado' : 'Dictar por voz',
       icon: Icon(
         _isListening ? Icons.mic : Icons.mic_none,
@@ -445,6 +455,14 @@ class _MicTextFieldState extends State<MicTextField> {
       ),
       onPressed: _toggleListening,
     );
+  }
+
+  /// Botón de micrófono (dictar), a la derecha. Si el campo ya tenía un
+  /// suffixIcon propio, se muestra junto a él en vez de sustituirlo.
+  /// Cuando el campo tiene el foco (el teclado está visible), se añade
+  /// también un botón para ocultarlo sin tener que tocar fuera del campo.
+  Widget _buildSuffixIcon(InputDecoration baseDecoration) {
+    final micButton = _buildMicButton();
 
     final hideKeyboardButton = _hasFocus
         ? IconButton(
