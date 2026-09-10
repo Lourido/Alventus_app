@@ -1385,7 +1385,7 @@ class OdooService {
         // Primero por id: sigue siendo válido aunque hayan renombrado la etapa.
         if (stageId != null) {
           for (final stage in stages) {
-            if (stage['id'] as int? == stageId) {
+            if ((stage['id'] as int?) == stageId) {
               resolvedStageId = stageId;
               break;
             }
