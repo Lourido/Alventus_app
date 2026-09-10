@@ -1,0 +1,743 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'odoo_service.dart';
+import 'local_database_service.dart';
+
+class SyncService {
+  // Singleton
+  SyncService._internal();
+  static final SyncService _instance = SyncService._internal();
+  factory SyncService() => _instance;
+
+  final OdooService _odooService = OdooService();
+  final LocalDatabaseService _localDb = LocalDatabaseService();
+  final Connectivity _connectivity = Connectivity();
+
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  bool _isSyncing = false;
+  bool _isOnline = true;
+
+  bool get isOnline => _isOnline;
+  bool get isSyncing => _isSyncing;
+
+  /// Inicializa el servicio de sincronización
+  void init() {
+    // Limpia la papelera de elementos con más de un mes cada vez que
+    // arranca la app, sin que el usuario tenga que hacer nada.
+    _localDb.purgeOldTrashItems();
+
+    _connectivitySubscription =
+        _connectivity.onConnectivityChanged.listen((results) {
+          final wasOnline = _isOnline;
+          _isOnline = _checkConnectivity(results);
+
+          print('📡 Conectividad: ${_isOnline ? "ONLINE" : "OFFLINE"}');
+
+          // Si pasamos de offline a online, sincronizar
+          if (!wasOnline && _isOnline) {
+            print('📡 Conexión recuperada. Iniciando sincronización...');
+            syncPendingChanges();
+          }
+        });
+  }
+
+  /// Verifica si hay conexión a internet
+  bool _checkConnectivity(List<ConnectivityResult> results) {
+    return results.any((result) => result != ConnectivityResult.none);
+  }
+
+  /// Verifica la conectividad actual
+  Future<bool> checkConnectivity() async {
+    final results = await _connectivity.checkConnectivity();
+    _isOnline = _checkConnectivity(results);
+    return _isOnline;
+  }
+
+  // ============ SINCRONIZACIÓN DE CAMBIOS PENDIENTES ============
+
+  /// Método PÚBLICO: envía cambios pendientes a Odoo (con protección contra ejecución simultánea)
+  Future<void> syncPendingChanges() async {
+    if (_isSyncing) {
+      print('⚠️ Ya hay una sincronización en curso, esperando...');
+      return;
+    }
+    _isSyncing = true;
+    try {
+      await _doSyncPendingChanges();
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  /// Método INTERNO: lógica real de sincronización (sin protección, lo usan fullSync y syncPendingChanges)
+  Future<void> _doSyncPendingChanges() async {
+    print('🔄 Iniciando sincronización de cambios pendientes...');
+
+    // Verificar conexión antes de empezar
+    final hasConnection = await checkConnectivity();
+    if (!hasConnection) {
+      print('📡 Sin conexión. No se pueden sincronizar los cambios pendientes.');
+      return;
+    }
+
+    final pendingChanges = await _localDb.getPendingChanges();
+
+    if (pendingChanges.isEmpty) {
+      print('✅ No hay cambios pendientes');
+      return;
+    }
+
+    print('📋 ${pendingChanges.length} cambios pendientes de sincronizar');
+
+    for (final change in pendingChanges) {
+      final changeId = change['id'] as int;
+      final model = change['model'] as String;
+      final action = change['action'] as String;
+      final recordId = change['record_id'] as int?;
+      final data = change['data'] as String?;
+
+      print('🔄 Procesando: id=$changeId, model=$model, action=$action, recordId=$recordId');
+      print('🔄 Datos: $data');
+
+      try {
+        bool success = false;
+
+        switch (action) {
+          case 'create':
+            success = await _syncCreate(model, change);
+            break;
+          case 'update':
+            success = await _syncUpdate(model, recordId ?? 0, change);
+            break;
+          case 'delete':
+            success = await _syncDelete(model, recordId ?? 0);
+            break;
+          case 'upload':
+            success = await _syncUpload(model, change);
+            break;
+        }
+
+        if (success) {
+          await _localDb.markChangeSynced(changeId);
+          print('✅ Cambio sincronizado: $action $model (ID: $recordId)');
+        } else {
+          await _localDb.markChangeFailed(changeId);
+          print('❌ Error al sincronizar: $action $model (ID: $recordId)');
+        }
+      } catch (e) {
+        await _localDb.markChangeFailed(changeId);
+        print('❌ Excepción al sincronizar: $e');
+      }
+    }
+
+    print('✅ Sincronización de cambios pendientes completada');
+  }
+
+  // ============ DESCARGA DE DATOS DESDE ODOO ============
+
+  /// Descarga proyectos de Odoo y los guarda localmente
+  Future<void> syncProjects() async {
+    print('🔄 Sincronizando proyectos...');
+
+    // Límite alto a propósito: como esta sincronización borra localmente
+    // los proyectos que no vengan en la respuesta, un límite bajo podría
+    // hacer que se borraran por error viajes que sí existen en Odoo.
+    // invisible: false -> solo trae los viajes NO quitados; los quitados
+    // se consultan aparte, directamente, desde la pantalla de "Recuperar
+    // viaje".
+    final result = await _odooService.fetchProjects(limit: 1000, invisible: false);
+
+    if (result['success'] == true) {
+      final List<dynamic> records = result['result'] as List<dynamic>;
+
+      final projectIds = records
+          .map((r) => (r as Map<String, dynamic>)['id'] as int)
+          .toList();
+
+      // Calcula el número de días real de cada proyecto contando sus
+      // etapas "Día N" (la más alta, sin contar "Día 0"), en vez de fiarse
+      // de date_start/date del propio proyecto, que pueden quedarse
+      // desactualizados si se añaden etapas sin pasar por ese flujo.
+      final Map<int, int> dayCountByProject = {};
+      final stagesResult = await _odooService.fetchStagesForProjects(projectIds);
+      if (stagesResult['success'] == true) {
+        final stages = (stagesResult['result'] as List<dynamic>).cast<Map<String, dynamic>>();
+        final dayPattern = RegExp(r'^Día\s*(\d+)');
+
+        for (final stage in stages) {
+          final name = stage['name']?.toString() ?? '';
+          final match = dayPattern.firstMatch(name.trim());
+          if (match == null) continue;
+
+          final dayNum = int.tryParse(match.group(1)!) ?? 0;
+          if (dayNum <= 0) continue; // "Día 0" no cuenta como día del viaje
+
+          final stageProjectIds = stage['project_ids'];
+          if (stageProjectIds is List) {
+            for (final pid in stageProjectIds) {
+              if (pid is int) {
+                final current = dayCountByProject[pid] ?? 0;
+                if (dayNum > current) dayCountByProject[pid] = dayNum;
+              }
+            }
+          }
+        }
+      }
+
+      final projectsToSave = records.map((record) {
+        final json = record as Map<String, dynamic>;
+        final userId = json['user_id'];
+        final partnerId = json['partner_id'];
+        final projectId = json['id'] as int;
+
+        return {
+          'id': projectId,
+          'name': json['name']?.toString() ?? '',
+          'description': json['description']?.toString(),
+          'user_name':
+          userId is List && userId.length > 1 ? userId[1].toString() : null,
+          'partner_name': partnerId is List && partnerId.length > 1
+              ? partnerId[1].toString()
+              : null,
+          'date_start': json['date_start']?.toString(),
+          'date_end': json['date']?.toString(),
+          'task_count': 0,
+          'day_count': dayCountByProject[projectId] ?? 0,
+        };
+      }).toList();
+
+      await _localDb.saveProjects(projectsToSave);
+      print('✅ ${projectsToSave.length} proyectos sincronizados');
+    } else {
+      print('❌ Error al sincronizar proyectos: ${result['error']}');
+    }
+  }
+
+  /// Descarga tareas de un proyecto y las guarda localmente
+  Future<void> syncTasks(int projectId) async {
+    print('🔄 Sincronizando tareas del proyecto $projectId...');
+
+    final result = await _odooService.fetchTasks(projectId);
+
+    if (result['success'] == true) {
+      final List<dynamic> records = result['result'] as List<dynamic>;
+
+      final tasksToSave = records.map((record) {
+        final json = record as Map<String, dynamic>;
+        final stageId = json['stage_id'];
+
+        return {
+          'id': json['id'],
+          'name': json['name']?.toString() ?? '',
+          'description': json['description']?.toString(),
+          'project_id': projectId,
+          'stage_name':
+          stageId is List && stageId.length > 1 ? stageId[1].toString() : null,
+          'deadline': json['date_deadline']?.toString(),
+          'priority': json['priority']?.toString() ?? '0',
+          'fecha_desde': json['fecha_desde']?.toString(),
+          'fecha_hasta': json['fecha_hasta']?.toString(),
+          'sequence': json['sequence'] as int? ?? 0,
+        };
+      }).toList();
+
+      await _localDb.saveTasks(tasksToSave, projectId: projectId);
+      print('✅ ${tasksToSave.length} tareas sincronizadas para el proyecto $projectId');
+    } else {
+      print('❌ Error al sincronizar tareas: ${result['error']}');
+    }
+  }
+
+  /// Descarga adjuntos de una tarea y los guarda localmente
+  Future<void> syncAttachments(int taskId) async {
+    print('🔄 Sincronizando adjuntos de la tarea $taskId...');
+
+    final result = await _odooService.fetchTaskAttachments(taskId);
+
+    if (result['success'] == true) {
+      final List<dynamic> records = result['result'] as List<dynamic>;
+
+      final attachmentsToSave = records.map((record) {
+        final json = record as Map<String, dynamic>;
+
+        return {
+          'id': json['id'],
+          'name': json['name']?.toString() ?? '',
+          'mime_type': json['mimetype']?.toString(),
+          'file_size': json['file_size'],
+          'create_date': json['create_date']?.toString(),
+          'task_id': taskId,
+        };
+      }).toList();
+
+      await _localDb.saveAttachments(attachmentsToSave, taskId: taskId);
+      print('✅ ${attachmentsToSave.length} adjuntos sincronizados para la tarea $taskId');
+    } else {
+      print('❌ Error al sincronizar adjuntos: ${result['error']}');
+    }
+  }
+
+  /// Descarga los contactos de referencia de un viaje y los guarda
+  /// localmente (para poder verlos sin conexión).
+  Future<void> syncReferenceContacts(int projectId) async {
+    print('🔄 Sincronizando contactos de referencia del proyecto $projectId...');
+
+    final result = await _odooService.fetchProjectReferenceContacts(projectId);
+
+    if (result['success'] == true) {
+      final List<dynamic> records = result['result'] as List<dynamic>;
+
+      final contactsToSave = records.map((record) {
+        final json = record as Map<String, dynamic>;
+        return {
+          'id': json['id'],
+          'project_id': projectId,
+          'name': json['name']?.toString() ?? '',
+          'phone': json['phone'] == false ? null : json['phone']?.toString(),
+          'email': json['email'] == false ? null : json['email']?.toString(),
+          'city': json['city'] == false ? null : json['city']?.toString(),
+          'comment': json['comment'] == false ? null : json['comment']?.toString(),
+        };
+      }).toList();
+
+      await _localDb.saveReferenceContacts(contactsToSave, projectId: projectId);
+      print('✅ ${contactsToSave.length} contactos sincronizados para el proyecto $projectId');
+    } else {
+      print('❌ Error al sincronizar contactos: ${result['error']}');
+    }
+  }
+
+  /// Descarga los archivos de ruta de un viaje y los guarda localmente
+  /// (solo metadata; el contenido del archivo se descarga bajo demanda).
+  Future<void> syncRouteFiles(int projectId) async {
+    print('🔄 Sincronizando archivos de ruta del proyecto $projectId...');
+
+    final result = await _odooService.fetchProjectRouteFiles(projectId);
+
+    if (result['success'] == true) {
+      final List<dynamic> records = result['result'] as List<dynamic>;
+
+      final filesToSave = records.map((record) {
+        final json = record as Map<String, dynamic>;
+        return {
+          'id': json['id'],
+          'project_id': projectId,
+          'file_name': json['file_name']?.toString() ?? '',
+          'description': json['description'] == false ? null : json['description']?.toString(),
+          'sequence': json['sequence'] as int? ?? 0,
+        };
+      }).toList();
+
+      await _localDb.saveRouteFiles(filesToSave, projectId: projectId);
+      print('✅ ${filesToSave.length} archivos de ruta sincronizados para el proyecto $projectId');
+    } else {
+      print('❌ Error al sincronizar archivos de ruta: ${result['error']}');
+    }
+  }
+
+  /// Descarga los documentos de un viaje y los guarda localmente (solo
+  /// metadata; el contenido del archivo se descarga bajo demanda).
+  Future<void> syncProjectDocuments(int projectId) async {
+    print('🔄 Sincronizando documentos del proyecto $projectId...');
+
+    final result = await _odooService.fetchProjectAttachments(projectId);
+
+    if (result['success'] == true) {
+      final List<dynamic> records = result['result'] as List<dynamic>;
+
+      final docsToSave = records.map((record) {
+        final json = record as Map<String, dynamic>;
+        return {
+          'id': json['id'],
+          'project_id': projectId,
+          'name': json['name']?.toString() ?? '',
+          'mime_type': json['mimetype']?.toString(),
+          'file_size': json['file_size'],
+          'create_date': json['create_date']?.toString(),
+        };
+      }).toList();
+
+      await _localDb.saveProjectDocuments(docsToSave, projectId: projectId);
+      print('✅ ${docsToSave.length} documentos sincronizados para el proyecto $projectId');
+    } else {
+      print('❌ Error al sincronizar documentos: ${result['error']}');
+    }
+  }
+
+  /// Descarga las fotos de grupo de un viaje y las guarda localmente
+  /// (solo metadata; la imagen en sí se descarga bajo demanda).
+  Future<void> syncProjectPhotos(int projectId) async {
+    print('🔄 Sincronizando fotos del proyecto $projectId...');
+
+    final result = await _odooService.fetchProjectPhotos(projectId);
+
+    if (result['success'] == true) {
+      final List<dynamic> records = result['result'] as List<dynamic>;
+
+      final photosToSave = records.map((record) {
+        final json = record as Map<String, dynamic>;
+        return {
+          'id': json['id'],
+          'project_id': projectId,
+          'name': json['name']?.toString() ?? '',
+          'create_date': json['create_date']?.toString(),
+        };
+      }).toList();
+
+      await _localDb.saveProjectPhotos(photosToSave, projectId: projectId);
+      print('✅ ${photosToSave.length} fotos sincronizadas para el proyecto $projectId');
+    } else {
+      print('❌ Error al sincronizar fotos: ${result['error']}');
+    }
+  }
+
+  // ============ OPERACIONES DE SINCRONIZACIÓN INDIVIDUALES ============
+
+  /// Sincroniza una creación de tarea o de contacto de referencia
+  Future<bool> _syncCreate(String model, Map<String, dynamic> change) async {
+    if (model == 'project.task') {
+      final dataStr = change['data'] as String?;
+      if (dataStr == null) return false;
+
+      try {
+        final data = jsonDecode(dataStr) as Map<String, dynamic>;
+        final projectId =
+            int.tryParse(data['project_id']?.toString() ?? '') ?? 0;
+        final name = data['name']?.toString() ?? '';
+        final description = data['description']?.toString();
+        final stageName = data['stage_name']?.toString();
+
+        print('🔄 _syncCreate: Creando tarea "$name" en proyecto $projectId (etapa: $stageName)');
+
+        if (projectId == 0 || name.isEmpty) return false;
+
+        final result = await _odooService.createTaskInStage(
+          projectId: projectId,
+          name: name,
+          description: description,
+          stageName: stageName,
+        );
+
+        print('🔄 _syncCreate: Resultado = ${result['success']}');
+        return result['success'] == true;
+      } catch (e) {
+        print('❌ Error en _syncCreate: $e');
+        return false;
+      }
+    }
+
+    if (model == 'reference_contact') {
+      final dataStr = change['data'] as String?;
+      if (dataStr == null) return false;
+
+      try {
+        final data = jsonDecode(dataStr) as Map<String, dynamic>;
+        final projectId = int.tryParse(data['project_id']?.toString() ?? '') ?? 0;
+        final name = data['name']?.toString() ?? '';
+        final phone = data['phone']?.toString();
+        final email = data['email']?.toString();
+        final tempId = change['record_id'] as int?;
+
+        print('🔄 _syncCreate: Creando contacto "$name" en proyecto $projectId');
+
+        if (projectId == 0 || name.isEmpty) return false;
+
+        final result = await _odooService.createAndLinkReferenceContact(
+          projectId: projectId,
+          name: name,
+          phone: (phone != null && phone.isNotEmpty) ? phone : null,
+          email: (email != null && email.isNotEmpty) ? email : null,
+        );
+
+        if (result['success'] == true && tempId != null) {
+          // Borra el contacto temporal local; la próxima sincronización
+          // de contactos traerá el real con su id definitivo.
+          await _localDb.deleteReferenceContactLocal(tempId);
+        }
+
+        print('🔄 _syncCreate: Resultado = ${result['success']}');
+        return result['success'] == true;
+      } catch (e) {
+        print('❌ Error en _syncCreate (contacto): $e');
+        return false;
+      }
+    }
+
+    return false;
+  }
+
+  /// Sincroniza una actualización de tarea
+  Future<bool> _syncUpdate(String model, int recordId, Map<String, dynamic> change) async {
+    if (model == 'project.task') {
+      final dataStr = change['data'] as String?;
+      if (dataStr == null) return false;
+
+      try {
+        final data = jsonDecode(dataStr) as Map<String, dynamic>;
+
+        print('🔄 _syncUpdate: Actualizando tarea $recordId');
+        print('🔄 _syncUpdate: name="${data["name"]}", description="${data["description"]}"');
+
+          final result = await _odooService.updateTask(
+          taskId: recordId,
+          name: data['name']?.toString(),
+          description: data['description']?.toString(),
+        );
+
+        print('🔄 _syncUpdate: Resultado = ${result['success']}');
+        return result['success'] == true;
+      } catch (e) {
+        print('❌ Error en _syncUpdate: $e');
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /// Sincroniza un borrado de tarea
+  Future<bool> _syncDelete(String model, int recordId) async {
+    if (model == 'project.task') {
+      print('🔄 _syncDelete: Borrando tarea $recordId');
+      final result = await _odooService.deleteTask(recordId);
+      print('🔄 _syncDelete: Resultado = ${result['success']}');
+      return result['success'] == true;
+    }
+    return false;
+  }
+
+  /// Sincroniza la subida de un archivo offline: adjunto de tarea,
+  /// archivo de ruta, documento de proyecto o foto de grupo, según el
+  /// "model" del cambio pendiente.
+  Future<bool> _syncUpload(String model, Map<String, dynamic> change) async {
+    switch (model) {
+      case 'ir.attachment':
+        return _syncUploadTaskAttachment(change);
+      case 'route_file':
+        return _syncUploadRouteFile(change);
+      case 'ir.attachment.project':
+        return _syncUploadProjectDocument(change);
+      case 'project.photo':
+        return _syncUploadProjectPhoto(change);
+      default:
+        return false;
+    }
+  }
+
+  Future<bool> _syncUploadTaskAttachment(Map<String, dynamic> change) async {
+    try {
+      final dataStr = change['data'] as String?;
+      if (dataStr == null) return false;
+
+      final data = jsonDecode(dataStr) as Map<String, dynamic>;
+      final taskId = int.tryParse(data['task_id']?.toString() ?? '') ?? 0;
+      final fileName = data['file_name']?.toString() ?? '';
+      final filePath = data['file_path']?.toString() ?? '';
+      final tempAttachmentId = change['record_id'] as int?;
+
+      print('🔄 _syncUpload: Subiendo adjunto "$fileName" a tarea $taskId');
+
+      if (taskId == 0 || fileName.isEmpty || filePath.isEmpty) return false;
+
+      final file = File(filePath);
+      if (!await file.exists()) {
+        print('❌ El archivo local no existe: $filePath');
+        return false;
+      }
+
+      final result = await _odooService.uploadAttachment(
+        taskId: taskId,
+        fileName: fileName,
+        file: file,
+      );
+
+      if (result['success'] == true) {
+        print('✅ Adjunto subido correctamente a Odoo');
+
+        if (tempAttachmentId != null) {
+          final db = await _localDb.database;
+          await db.delete('attachments', where: 'id = ?', whereArgs: [tempAttachmentId]);
+        }
+
+        try {
+          await file.delete();
+        } catch (_) {}
+
+        await syncAttachments(taskId);
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      print('❌ Error al subir adjunto: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _syncUploadRouteFile(Map<String, dynamic> change) async {
+    try {
+      final dataStr = change['data'] as String?;
+      if (dataStr == null) return false;
+
+      final data = jsonDecode(dataStr) as Map<String, dynamic>;
+      final projectId = int.tryParse(data['project_id']?.toString() ?? '') ?? 0;
+      final fileName = data['file_name']?.toString() ?? '';
+      final filePath = data['file_path']?.toString() ?? '';
+      final description = data['description']?.toString();
+      final tempId = change['record_id'] as int?;
+
+      print('🔄 _syncUpload: Subiendo archivo de ruta "$fileName" al proyecto $projectId');
+
+      if (projectId == 0 || fileName.isEmpty || filePath.isEmpty) return false;
+
+      final file = File(filePath);
+      if (!await file.exists()) return false;
+
+      final result = await _odooService.uploadRouteFile(
+        projectId: projectId,
+        fileName: fileName,
+        file: file,
+        description: (description != null && description.isNotEmpty) ? description : null,
+      );
+
+      if (result['success'] == true) {
+        if (tempId != null) await _localDb.deleteRouteFileLocal(tempId);
+        try {
+          await file.delete();
+        } catch (_) {}
+        await syncRouteFiles(projectId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('❌ Error al subir archivo de ruta: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _syncUploadProjectDocument(Map<String, dynamic> change) async {
+    try {
+      final dataStr = change['data'] as String?;
+      if (dataStr == null) return false;
+
+      final data = jsonDecode(dataStr) as Map<String, dynamic>;
+      final projectId = int.tryParse(data['project_id']?.toString() ?? '') ?? 0;
+      final fileName = data['file_name']?.toString() ?? '';
+      final filePath = data['file_path']?.toString() ?? '';
+      final tempId = change['record_id'] as int?;
+
+      print('🔄 _syncUpload: Subiendo documento "$fileName" al proyecto $projectId');
+
+      if (projectId == 0 || fileName.isEmpty || filePath.isEmpty) return false;
+
+      final file = File(filePath);
+      if (!await file.exists()) return false;
+
+      final result = await _odooService.uploadProjectAttachment(
+        projectId: projectId,
+        fileName: fileName,
+        file: file,
+      );
+
+      if (result['success'] == true) {
+        if (tempId != null) await _localDb.deleteProjectDocumentLocal(tempId);
+        try {
+          await file.delete();
+        } catch (_) {}
+        await syncProjectDocuments(projectId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('❌ Error al subir documento: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _syncUploadProjectPhoto(Map<String, dynamic> change) async {
+    try {
+      final dataStr = change['data'] as String?;
+      if (dataStr == null) return false;
+
+      final data = jsonDecode(dataStr) as Map<String, dynamic>;
+      final projectId = int.tryParse(data['project_id']?.toString() ?? '') ?? 0;
+      final fileName = data['file_name']?.toString() ?? '';
+      final filePath = data['file_path']?.toString() ?? '';
+      final tempId = change['record_id'] as int?;
+
+      print('🔄 _syncUpload: Subiendo foto "$fileName" al proyecto $projectId');
+
+      if (projectId == 0 || fileName.isEmpty || filePath.isEmpty) return false;
+
+      final file = File(filePath);
+      if (!await file.exists()) return false;
+
+      final result = await _odooService.uploadProjectPhoto(
+        projectId: projectId,
+        fileName: fileName,
+        file: file,
+      );
+
+      if (result['success'] == true) {
+        if (tempId != null) await _localDb.deleteProjectPhotoLocal(tempId);
+        try {
+          await file.delete();
+        } catch (_) {}
+        await syncProjectPhotos(projectId);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('❌ Error al subir foto: $e');
+      return false;
+    }
+  }
+
+  // ============ SINCRONIZACIÓN COMPLETA ============
+
+  /// Sincronización completa: envía cambios pendientes y descarga datos actualizados
+  Future<void> fullSync() async {
+    if (_isSyncing) {
+      print('⚠️ fullSync: Ya hay una sincronización en curso');
+      return;
+    }
+
+    _isSyncing = true;
+
+    try {
+      final hasConnection = await checkConnectivity();
+
+      if (!hasConnection) {
+        print('📡 Sin conexión. Usando datos locales.');
+        return;
+      }
+
+      print('🔄 ===== Iniciando sincronización completa =====');
+
+      // 1. PRIMERO: enviar cambios pendientes a Odoo
+      await _doSyncPendingChanges();
+
+      // 2. Descargar proyectos actualizados
+      await syncProjects();
+
+      // 3. Descargar tareas de cada proyecto
+      final projects = await _localDb.getProjects();
+      for (final project in projects) {
+        final projectId = project['id'] as int;
+        await syncTasks(projectId);
+      }
+
+      print('✅ ===== Sincronización completa finalizada =====');
+    } catch (e) {
+      print('❌ Error en sincronización completa: $e');
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  /// Limpia los recursos
+  void dispose() {
+    _connectivitySubscription?.cancel();
+  }
+}

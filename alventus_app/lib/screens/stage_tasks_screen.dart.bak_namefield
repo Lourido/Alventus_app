@@ -1,0 +1,665 @@
+import 'package:flutter/material.dart';
+import '../services/odoo_service.dart';
+import '../services/local_database_service.dart';
+import '../services/sync_service.dart';
+import '../models/project.dart';
+import '../models/task.dart';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import 'package:alventus_app/widgets/speech/mic_text_field.dart';
+import 'task_detail_screen.dart';
+
+/// Muestra las tareas de una etapa (día) concreta de un viaje, permite
+/// crear tareas nuevas asignadas a esa etapa, y reordenarlas manualmente.
+class StageTasksScreen extends StatefulWidget {
+  final Project project;
+  final String stageName;
+
+  const StageTasksScreen({super.key, required this.project, required this.stageName});
+
+  @override
+  State<StageTasksScreen> createState() => _StageTasksScreenState();
+}
+
+/// Compara dos horas: true si [to] es igual o posterior a [from] (o si
+/// alguna de las dos todavía no está definida, en cuyo caso no hay nada
+/// que validar aún).
+bool _isValidTimeRange(TimeOfDay? from, TimeOfDay? to) {
+  if (from == null || to == null) return true;
+  final fromMinutes = from.hour * 60 + from.minute;
+  final toMinutes = to.hour * 60 + to.minute;
+  return toMinutes >= fromMinutes;
+}
+
+class _StageTasksScreenState extends State<StageTasksScreen> {
+  final OdooService _odooService = OdooService();
+  final LocalDatabaseService _localDb = LocalDatabaseService();
+  final SyncService _syncService = SyncService();
+
+  // Guardamos las filas "en bruto" (no solo el modelo Task) porque
+  // necesitamos el campo sequence para poder reordenar, y el modelo Task
+  // no lo incluye.
+  List<Map<String, dynamic>> _taskRows = [];
+  bool _isLoading = true;
+  bool _isOffline = false;
+
+  /// Fecha de la etapa extraída de su propio nombre (los nombres de etapa
+  /// siguen el formato "Día N - dd/mm/aaaa" que genera el asistente de
+  /// creación de viajes en Odoo).
+  String? get _stageDateFromName {
+    final match = RegExp(r'(\d{2}/\d{2}/\d{4})').firstMatch(widget.stageName);
+    return match?.group(1);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTasks();
+  }
+
+  Future<void> _loadTasks() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    final hasConnection = await _syncService.checkConnectivity();
+    if (!mounted) return;
+
+    if (hasConnection) {
+      await _syncService.syncTasks(widget.project.id);
+    }
+
+    final rows = await _localDb.getTasks(widget.project.id);
+    if (!mounted) return;
+
+    final filtered = rows.where((row) {
+      final stageName = (row['stage_name'] as String?)?.trim();
+      final key = (stageName == null || stageName.isEmpty) ? 'Sin etapa' : stageName;
+      return key == widget.stageName;
+    }).toList();
+
+    // Ordena por "sequence" (el campo real de Odoo para el orden manual).
+    filtered.sort((a, b) {
+      final seqA = a['sequence'] as int? ?? 0;
+      final seqB = b['sequence'] as int? ?? 0;
+      if (seqA != seqB) return seqA.compareTo(seqB);
+      return (a['id'] as int).compareTo(b['id'] as int);
+    });
+
+    setState(() {
+      _isOffline = !hasConnection;
+      _taskRows = filtered;
+      _isLoading = false;
+    });
+  }
+
+  Task _taskFromRow(Map<String, dynamic> row) {
+    return Task(
+      id: row['id'] as int,
+      name: row['name'] as String? ?? '',
+      description: row['description'] as String?,
+      projectId: row['project_id'] as int,
+      stageName: row['stage_name'] as String?,
+      deadline: row['deadline'] as String?,
+      priority: row['priority'] as String? ?? '0',
+      fechaDesde: row['fecha_desde'] as String?,
+      fechaHasta: row['fecha_hasta'] as String?,
+    );
+  }
+
+  /// Construye la etiqueta de fecha a mostrar: la fecha de la etapa (misma
+  /// para todas las tareas del día), más la hora de la tarea si la tuviera.
+  String? _dateLabelForRow(Map<String, dynamic> row) {
+    String? timePart;
+    final fechaDesde = row['fecha_desde'] as String?;
+    if (fechaDesde != null && fechaDesde.isNotEmpty) {
+      try {
+        final dt = DateTime.parse(fechaDesde);
+        if (dt.hour != 0 || dt.minute != 0) {
+          timePart = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+        }
+      } catch (_) {}
+    }
+
+    final stageDate = _stageDateFromName;
+    if (stageDate == null && timePart == null) return null;
+    if (stageDate == null) return timePart;
+    return timePart != null ? '$stageDate $timePart' : stageDate;
+  }
+
+  // ---------------------------------------------------------------------
+  // REORDENAR TAREAS
+  // ---------------------------------------------------------------------
+
+  Future<void> _moveTask(int index, int delta) async {
+    final targetIndex = index + delta;
+    if (targetIndex < 0 || targetIndex >= _taskRows.length) return;
+
+    final hasConnection = await _syncService.checkConnectivity();
+    if (!hasConnection) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Se necesita conexión a internet para reordenar tareas'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Si varias tareas comparten la misma secuencia (o no tienen ninguna
+    // asignada todavía), se renumeran todas según el orden actual en
+    // pantalla antes de intercambiar, para que el intercambio tenga
+    // efecto real.
+    final needsRenumber = _taskRows
+        .map((r) => r['sequence'] as int? ?? 0)
+        .toSet()
+        .length < _taskRows.length;
+
+    List<Map<String, dynamic>> workingRows = _taskRows;
+    if (needsRenumber) {
+      workingRows = List.of(_taskRows);
+      for (var i = 0; i < workingRows.length; i++) {
+        workingRows[i] = {...workingRows[i], 'sequence': i * 10};
+      }
+    }
+
+    final current = workingRows[index];
+    final target = workingRows[targetIndex];
+    final currentSeq = current['sequence'] as int;
+    final targetSeq = target['sequence'] as int;
+
+    setState(() => _isLoading = true);
+
+    if (needsRenumber) {
+      for (final row in workingRows) {
+        await _odooService.updateTaskSequence(
+          taskId: row['id'] as int,
+          sequence: row['sequence'] as int,
+        );
+      }
+    }
+
+    await _odooService.updateTaskSequence(taskId: current['id'] as int, sequence: targetSeq);
+    await _odooService.updateTaskSequence(taskId: target['id'] as int, sequence: currentSeq);
+
+    await _syncService.syncTasks(widget.project.id);
+
+    if (!mounted) return;
+    await _loadTasks();
+  }
+
+  // ---------------------------------------------------------------------
+  // CREAR TAREA
+  // ---------------------------------------------------------------------
+
+  void _showCreateTaskDialog() {
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    TimeOfDay? timeFrom;
+    TimeOfDay? timeTo;
+
+    String formatTime(TimeOfDay? t) => t == null
+        ? 'Sin definir'
+        : '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Nueva tarea'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    MicTextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre de la tarea',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    MicTextField(
+                      controller: descController,
+                      decoration: const InputDecoration(
+                        labelText: 'Descripción (opcional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.access_time, size: 18),
+                            label: Text('Desde: ${formatTime(timeFrom)}'),
+                            onPressed: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: timeFrom ?? TimeOfDay.now(),
+                                initialEntryMode: TimePickerEntryMode.input,
+                              );
+                              if (picked != null) {
+                                if (!_isValidTimeRange(picked, timeTo)) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'La hora "desde" no puede ser posterior a la hora "hasta"',
+                                      ),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                setDialogState(() => timeFrom = picked);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.access_time, size: 18),
+                            label: Text('Hasta: ${formatTime(timeTo)}'),
+                            onPressed: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: timeTo ?? TimeOfDay.now(),
+                                initialEntryMode: TimePickerEntryMode.input,
+                              );
+                              if (picked != null) {
+                                if (!_isValidTimeRange(timeFrom, picked)) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'La hora "hasta" no puede ser anterior a la hora "desde"',
+                                      ),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                setDialogState(() => timeTo = picked);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final name = nameController.text.trim();
+                    if (name.isEmpty) return;
+
+                    Navigator.pop(dialogContext);
+                    await _createTask(name, descController.text.trim(), timeFrom, timeTo);
+                  },
+                  child: const Text('Crear'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Combina la fecha de esta etapa (extraída de su nombre) con una hora
+  /// concreta, en el formato "yyyy-MM-dd HH:mm:ss" que espera Odoo.
+  String? _combineStageDateWithTime(TimeOfDay? time) {
+    if (time == null) return null;
+
+    final stageDateStr = _stageDateFromName; // "dd/mm/yyyy"
+    DateTime baseDate;
+    if (stageDateStr != null) {
+      final parts = stageDateStr.split('/');
+      baseDate = DateTime(int.parse(parts[2]), int.parse(parts[1]), int.parse(parts[0]));
+    } else {
+      baseDate = DateTime.now();
+    }
+
+    final combined = DateTime(baseDate.year, baseDate.month, baseDate.day, time.hour, time.minute);
+    return '${combined.year.toString().padLeft(4, '0')}-${combined.month.toString().padLeft(2, '0')}-'
+        '${combined.day.toString().padLeft(2, '0')} ${combined.hour.toString().padLeft(2, '0')}:'
+        '${combined.minute.toString().padLeft(2, '0')}:00';
+  }
+
+  /// Crea la tarea asignada a esta etapa (por nombre). Si hay conexión,
+  /// se crea directamente en Odoo; si no, se guarda localmente y se
+  /// encola para sincronizar más tarde (la etapa se resuelve por nombre
+  /// en el momento de sincronizar, ver [OdooService.createTaskInStage]).
+  Future<void> _createTask(
+    String name,
+    String description, [
+    TimeOfDay? timeFrom,
+    TimeOfDay? timeTo,
+  ]) async {
+    final fechaDesde = _combineStageDateWithTime(timeFrom);
+    final fechaHasta = _combineStageDateWithTime(timeTo);
+
+    final hasConnection = await _syncService.checkConnectivity();
+
+    if (hasConnection) {
+      final result = await _odooService.createTaskInStage(
+        projectId: widget.project.id,
+        name: name,
+        description: description.isNotEmpty ? description : null,
+        stageName: widget.stageName,
+        fechaDesde: fechaDesde,
+        fechaHasta: fechaHasta,
+      );
+
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        await _syncService.syncTasks(widget.project.id);
+        if (!mounted) return;
+        _loadTasks();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']?.toString() ?? 'Error al crear la tarea'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } else {
+      // Sin conexión: se guarda localmente con el nombre de esta etapa
+      // para que se vea ya en la lista, y se encola para sincronizar.
+      final tempId = -DateTime.now().millisecondsSinceEpoch;
+
+      await _localDb.saveTasks([
+        {
+          'id': tempId,
+          'name': name,
+          'description': description.isNotEmpty ? description : null,
+          'project_id': widget.project.id,
+          'stage_name': widget.stageName,
+          'deadline': null,
+          'priority': '0',
+          'fecha_desde': fechaDesde,
+          'fecha_hasta': fechaHasta,
+          'sequence': 0,
+        },
+      ]);
+
+      await _localDb.addPendingChange(
+        model: 'project.task',
+        action: 'create',
+        recordId: tempId,
+        data: {
+          'project_id': widget.project.id.toString(),
+          'name': name,
+          'description': description,
+          'stage_name': widget.stageName,
+        },
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tarea guardada localmente. Se sincronizará cuando haya conexión.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+
+      _loadTasks();
+    }
+  }
+
+  /// Edita la hora (desde o hasta) de una tarea directamente desde la
+  /// lista, sin tener que entrar a su detalle. La fecha se toma de la
+  /// etapa (no hace falta pedirla, ya se conoce).
+  Future<void> _editTaskTime(Map<String, dynamic> row, {required bool isFrom}) async {
+    final fieldValue = (isFrom ? row['fecha_desde'] : row['fecha_hasta']) as String?;
+    TimeOfDay? currentTime;
+    if (fieldValue != null && fieldValue.isNotEmpty) {
+      try {
+        final dt = DateTime.parse(fieldValue);
+        currentTime = TimeOfDay(hour: dt.hour, minute: dt.minute);
+      } catch (_) {}
+    }
+
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: currentTime ?? TimeOfDay.now(),
+      initialEntryMode: TimePickerEntryMode.input,
+    );
+    if (picked == null) return;
+
+    // Comprueba coherencia contra el valor ACTUAL del otro campo (el que
+    // no se está editando ahora mismo).
+    final otherFieldValue = (isFrom ? row['fecha_hasta'] : row['fecha_desde']) as String?;
+    TimeOfDay? otherTime;
+    if (otherFieldValue != null && otherFieldValue.isNotEmpty) {
+      try {
+        final dt = DateTime.parse(otherFieldValue);
+        otherTime = TimeOfDay(hour: dt.hour, minute: dt.minute);
+      } catch (_) {}
+    }
+
+    final isValid = isFrom ? _isValidTimeRange(picked, otherTime) : _isValidTimeRange(otherTime, picked);
+
+    if (!isValid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isFrom
+                ? 'La hora "desde" no puede ser posterior a la hora "hasta" ya guardada'
+                : 'La hora "hasta" no puede ser anterior a la hora "desde" ya guardada',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final newValue = _combineStageDateWithTime(picked);
+    if (newValue == null) return;
+
+    final hasConnection = await _syncService.checkConnectivity();
+    if (!hasConnection) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Se necesita conexión a internet para cambiar la hora'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final taskId = row['id'] as int;
+    final result = await _odooService.updateTask(
+      taskId: taskId,
+      fechaDesde: isFrom ? newValue : null,
+      fechaHasta: isFrom ? null : newValue,
+    );
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      await _syncService.syncTasks(widget.project.id);
+      if (!mounted) return;
+      _loadTasks();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['error']?.toString() ?? 'No se pudo cambiar la hora'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  String _timeChipLabel(Map<String, dynamic> row, {required bool isFrom}) {
+    final fieldValue = (isFrom ? row['fecha_desde'] : row['fecha_hasta']) as String?;
+    if (fieldValue == null || fieldValue.isEmpty) {
+      return isFrom ? 'Desde: --:--' : 'Hasta: --:--';
+    }
+    try {
+      final dt = DateTime.parse(fieldValue);
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return isFrom ? 'Desde: $h:$m' : 'Hasta: $h:$m';
+    } catch (_) {
+      return isFrom ? 'Desde: --:--' : 'Hasta: --:--';
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.stageName),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: Icon(
+              _isOffline ? Icons.cloud_off : Icons.cloud_done,
+              color: _isOffline ? Colors.orange : Colors.green,
+            ),
+          ),
+        ],
+      ),
+      body: _buildBody(),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showCreateTaskDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('Nueva tarea'),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_taskRows.isEmpty) {
+      return const Center(child: Text('Esta etapa no tiene tareas todavía'));
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadTasks,
+      child: ListView.builder(
+        itemCount: _taskRows.length,
+        itemBuilder: (context, index) {
+          final row = _taskRows[index];
+          final task = _taskFromRow(row);
+
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: ListTile(
+              // Sin icono a la izquierda ni chips de hora desde-hasta: así el
+              // nombre de la tarea aprovecha todo el ancho del recuadro.
+              title: Text(task.name),
+              // Botones de subir/bajar en la línea de debajo del nombre,
+              // uno a cada extremo, en vez de a la derecha del todo.
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_up),
+                      tooltip: 'Subir',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: index == 0 ? null : () => _moveTask(index, -1),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down),
+                      tooltip: 'Bajar',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: index == _taskRows.length - 1 ? null : () => _moveTask(index, 1),
+                    ),
+                  ],
+                ),
+              ),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => TaskDetailScreen(task: task),
+                  ),
+                ).then((_) {
+                  // Al volver de editar la tarea, recargamos para que el
+                  // cambio se vea reflejado aquí sin tener que salir y
+                  // volver a entrar a mano.
+                  if (mounted) _loadTasks();
+                });
+              },
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
