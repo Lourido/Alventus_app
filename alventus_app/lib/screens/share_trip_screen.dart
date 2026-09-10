@@ -299,18 +299,23 @@ class _ShareTripScreenState extends State<ShareTripScreen> {
   Future<void> _openWhatsApp({required String guideName, required String tripName}) async {
     final message =
         'Hola $guideName, ya tienes disponible el viaje "$tripName" en la app.';
-    final uri = Uri.parse('whatsapp://send?text=${Uri.encodeComponent(message)}');
+    // Se usa el enlace universal https://wa.me/ en vez del esquema
+    // "whatsapp://": con "whatsapp://", canLaunchUrl() necesita que el
+    // sistema operativo confirme que la app está instalada, y en la
+    // versión web (PWA en el iPhone) el navegador no tiene forma de
+    // comprobar eso, así que canLaunchUrl() siempre devolvía false aunque
+    // WhatsApp sí estuviera instalado. El enlace https://wa.me/ funciona
+    // igual en todas las plataformas: si WhatsApp está instalado, el
+    // propio sistema lo abre con el mensaje ya escrito; si no, abre
+    // WhatsApp Web en el navegador.
+    final uri = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(message)}');
 
-    final canOpen = await canLaunchUrl(uri);
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
-    if (!mounted) return;
-
-    if (canOpen) {
-      await launchUrl(uri);
-    } else {
+    if (!opened && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('WhatsApp no está instalado en este teléfono'),
+          content: Text('No se pudo abrir WhatsApp'),
           backgroundColor: Colors.orange,
         ),
       );
