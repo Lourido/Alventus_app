@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
 import '../services/odoo_service.dart';
 import '../services/local_database_service.dart';
@@ -655,92 +656,149 @@ class _StagesScreenState extends State<StagesScreen> {
       return const Center(child: Text('Este viaje no tiene etapas todavía'));
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadStages,
-      child: ReorderableListView.builder(
-        padding: const EdgeInsets.only(bottom: 80),
-        buildDefaultDragHandles: false,
-        onReorder: _onReorder,
-        itemCount: _stages.length,
-        itemBuilder: (context, index) {
-          final stage = _stages[index];
-          return Card(
-            key: ValueKey(stage.stageId ?? -1),
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.event)),
-              title: Text(stage.stageName, style: const TextStyle(fontWeight: FontWeight.bold)),
-              // La descripción se ve y se puede editar siempre (tenga
-              // texto o no), tocando esta zona en concreto -- el resto
-              // del Card sigue abriendo las tareas de la etapa al tocarlo.
-              subtitle: stage.stageId == null
-                  ? null
-                  : InkWell(
-                      onTap: () => _editStageDescription(stage),
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                (stage.description != null && stage.description!.isNotEmpty)
-                                    ? stage.description!
-                                    : 'Sin descripción · toca para añadir',
-                                style: (stage.description != null && stage.description!.isNotEmpty)
-                                    ? null
-                                    : TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Icon(Icons.edit, size: 16, color: Colors.grey[500]),
-                          ],
+    final Widget list = kIsWeb
+        ? ListView.builder(
+            padding: const EdgeInsets.only(bottom: 80),
+            itemCount: _stages.length,
+            itemBuilder: (context, index) {
+              final stage = _stages[index];
+              // En web el arrastre no es fiable en móviles (el navegador
+              // se queda con el toque para hacer scroll), así que aquí se
+              // usan botones de subir/bajar en su lugar.
+              return _buildStageCard(
+                index,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_up),
+                      tooltip: 'Subir',
+                      style: IconButton.styleFrom(
+                        shape: const CircleBorder(),
+                        side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.2),
+                      ),
+                      onPressed: index == 0 ? null : () => _moveStageContent(index, index - 1),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down),
+                      tooltip: 'Bajar',
+                      style: IconButton.styleFrom(
+                        shape: const CircleBorder(),
+                        side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.2),
+                      ),
+                      onPressed: index == _stages.length - 1 ? null : () => _moveStageContent(index, index + 1),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      tooltip: 'Borrar etapa',
+                      onPressed: () => _confirmDeleteStage(stage),
+                    ),
+                  ],
+                ),
+              );
+            },
+          )
+        : ReorderableListView.builder(
+            padding: const EdgeInsets.only(bottom: 80),
+            buildDefaultDragHandles: false,
+            onReorder: _onReorder,
+            itemCount: _stages.length,
+            itemBuilder: (context, index) {
+              final stage = _stages[index];
+              return _buildStageCard(
+                index,
+                key: ValueKey(stage.stageId ?? -1),
+                // Arrastrando este icono se reordena (se intercambia
+                // contenido con las etapas intermedias); el botón de
+                // borrar se mantiene aparte.
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      tooltip: 'Borrar etapa',
+                      onPressed: () => _confirmDeleteStage(stage),
+                    ),
+                    ReorderableDelayedDragStartListener(
+                      index: index,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Tooltip(
+                          message: 'Mantén pulsado y arrastra para reordenar',
+                          child: Icon(Icons.drag_handle),
                         ),
                       ),
                     ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => StageTasksScreen(
-                      project: widget.project,
-                      stageName: stage.stageName,
-                      stageDescription: stage.description,
-                    ),
-                  ),
-                ).then((_) {
-                  // Añadir/borrar tareas cambia el contador de tareas de
-                  // la etapa que se ve en esta lista: al volver, se
-                  // recarga para que se actualice.
-                  if (mounted) _loadStages();
-                });
-              },
-              // Arrastrando este icono se reordena (se intercambia
-              // contenido con las etapas intermedias); el botón de borrar
-              // se mantiene aparte.
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    tooltip: 'Borrar etapa',
-                    onPressed: () => _confirmDeleteStage(stage),
-                  ),
-                  ReorderableDelayedDragStartListener(
-                    index: index,
-                    child: const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Tooltip(
-                        message: 'Mantén pulsado y arrastra para reordenar',
-                        child: Icon(Icons.drag_handle),
+                  ],
+                ),
+              );
+            },
+          );
+
+    return RefreshIndicator(
+      onRefresh: _loadStages,
+      child: list,
+    );
+  }
+
+  /// Construye la tarjeta de una etapa (icono, nombre, descripción
+  /// editable y el gesto para entrar a sus tareas). El [trailing] lo
+  /// decide quien la use: en web son botones de subir/bajar/borrar, y
+  /// en la app nativa es el icono de arrastrar + borrar.
+  Widget _buildStageCard(int index, {required Widget trailing, Key? key}) {
+    final stage = _stages[index];
+    return Card(
+      key: key,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.event)),
+        title: Text(stage.stageName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        // La descripción se ve y se puede editar siempre (tenga
+        // texto o no), tocando esta zona en concreto -- el resto
+        // del Card sigue abriendo las tareas de la etapa al tocarlo.
+        subtitle: stage.stageId == null
+            ? null
+            : InkWell(
+                onTap: () => _editStageDescription(stage),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          (stage.description != null && stage.description!.isNotEmpty)
+                              ? stage.description!
+                              : 'Sin descripción · toca para añadir',
+                          style: (stage.description != null && stage.description!.isNotEmpty)
+                              ? null
+                              : TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.edit, size: 16, color: Colors.grey[500]),
+                    ],
                   ),
-                ],
+                ),
+              ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => StageTasksScreen(
+                project: widget.project,
+                stageName: stage.stageName,
+                stageDescription: stage.description,
               ),
             ),
-          );
+          ).then((_) {
+            // Añadir/borrar tareas cambia el contador de tareas de
+            // la etapa que se ve en esta lista: al volver, se
+            // recarga para que se actualice.
+            if (mounted) _loadStages();
+          });
         },
+        trailing: trailing,
       ),
     );
   }

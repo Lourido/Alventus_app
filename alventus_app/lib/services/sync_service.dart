@@ -261,6 +261,13 @@ class SyncService {
   Future<void> syncTasks(int projectId) async {
     print('🔄 Sincronizando tareas del proyecto $projectId...');
 
+    // Antes de traer lo que hay en Odoo, se envían primero los cambios
+    // pendientes (p.ej. una tarea creada sin conexión). Si no se hiciera
+    // esto antes, la limpieza de abajo (que borra de la copia local las
+    // tareas que Odoo no devuelve) podría borrar una tarea recién creada
+    // sin conexión antes de que le diera tiempo a subirse.
+    await _doSyncPendingChanges();
+
     final result = await _odooService.fetchTasks(projectId);
 
     if (result['success'] == true) {
@@ -479,8 +486,13 @@ class SyncService {
         final name = data['name']?.toString() ?? '';
         final description = data['description']?.toString();
         final stageName = data['stage_name']?.toString();
+        // Id de la etapa que se conocía en el momento de crear la tarea
+        // (sin conexión). Se prueba primero por id porque sobrevive a que
+        // hayan renombrado la etapa en Odoo mientras tanto; el nombre solo
+        // se usa como respaldo si no hay id o ya no existe.
+        final stageId = int.tryParse(data['stage_id']?.toString() ?? '');
 
-        print('🔄 _syncCreate: Creando tarea "$name" en proyecto $projectId (etapa: $stageName)');
+        print('🔄 _syncCreate: Creando tarea "$name" en proyecto $projectId (etapa: $stageName, id: $stageId)');
 
         if (projectId == 0 || name.isEmpty) return false;
 
@@ -488,6 +500,7 @@ class SyncService {
           projectId: projectId,
           name: name,
           description: description,
+          stageId: stageId,
           stageName: stageName,
         );
 

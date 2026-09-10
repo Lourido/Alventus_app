@@ -223,6 +223,24 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
   }
 
+  /// Se llama al intentar salir de la pantalla (botón atrás, gesto del
+  /// sistema, flecha del AppBar...). Si el nombre o la descripción se
+  /// han editado y no se han guardado todavía (no se pulsó "Guardar"),
+  /// los guarda automáticamente antes de dejar salir, para que ningún
+  /// cambio se pierda ni se quede sin reflejar en Odoo/la lista.
+  Future<void> _saveAndPop() async {
+    final name = _nameController.text.trim();
+    final description = _descriptionController.text.trim();
+    final hasUnsavedChanges = name != _task.name || description != (_task.description ?? '');
+
+    if (hasUnsavedChanges && name.isNotEmpty && !_isSaving) {
+      await _saveTask();
+    }
+
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
   // Mostrar opciones para adjuntar archivos
   void _showAttachOptions() {
     showModalBottomSheet(
@@ -691,21 +709,31 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Detalle de tarea'),
-      ),
-      body: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildContent(),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isSaving ? null : _saveTask,
-        icon: _isSaving
-            ? const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        )
-            : const Icon(Icons.save),
-        label: const Text('Guardar'),
+    return PopScope(
+      // canPop en false intercepta el intento de salir (atrás del
+      // sistema, gesto, flecha del AppBar) para poder guardar primero
+      // si hace falta; _saveAndPop hace el pop real después.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _saveAndPop();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Detalle de tarea'),
+        ),
+        body: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildContent(),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _isSaving ? null : _saveTask,
+          icon: _isSaving
+              ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+              : const Icon(Icons.save),
+          label: const Text('Guardar'),
+        ),
       ),
     );
   }

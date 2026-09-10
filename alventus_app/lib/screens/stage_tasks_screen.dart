@@ -247,7 +247,14 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   Future<void> _onReorderTasks(int oldIndex, int newIndex) async {
     if (newIndex > oldIndex) newIndex -= 1;
     if (oldIndex == newIndex) return;
+    await _moveTaskTo(oldIndex, newIndex);
+  }
 
+  /// Mueve la tarea de [oldIndex] a [newIndex] (posición final exacta,
+  /// no un desplazamiento relativo) y renumera todas según el nuevo
+  /// orden. La usan tanto el arrastre (app nativa) como los botones de
+  /// subir/bajar (web).
+  Future<void> _moveTaskTo(int oldIndex, int newIndex) async {
     final hasConnection = await _syncService.checkConnectivity();
     if (!hasConnection) {
       if (!mounted) return;
@@ -392,6 +399,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
         projectId: widget.project.id,
         name: name,
         description: description.isNotEmpty ? description : null,
+        stageId: _stageId,
         stageName: widget.stageName,
         fechaDesde: fechaDesde,
         fechaHasta: fechaHasta,
@@ -440,6 +448,10 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
           'name': name,
           'description': description,
           'stage_name': widget.stageName,
+          // Id de la etapa que ya se conocía en este momento (si lo hay):
+          // al sincronizar se prueba primero por id, que sobrevive a que
+          // renombren la etapa en Odoo mientras la tarea seguía en cola.
+          if (_stageId != null) 'stage_id': _stageId.toString(),
         },
       );
 
@@ -1033,49 +1045,99 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       return const Center(child: Text('Esta etapa no tiene tareas todavía'));
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadTasks,
-      child: ReorderableListView.builder(
-        buildDefaultDragHandles: false,
-        onReorder: _onReorderTasks,
-        itemCount: _taskRows.length,
-        itemBuilder: (context, index) {
-          final row = _taskRows[index];
-          final task = _taskFromRow(row);
-
-          return Card(
-            key: ValueKey(row['id']),
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: ListTile(
-              // Sin icono a la izquierda: así el nombre de la tarea
-              // aprovecha todo el ancho del recuadro. El icono de arrastrar
-              // (a la derecha) reordena la tarea dentro de la etapa.
-              title: Text(task.name),
-              trailing: ReorderableDelayedDragStartListener(
-                index: index,
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Tooltip(
-                    message: 'Mantén pulsado y arrastra para reordenar',
-                    child: Icon(Icons.drag_handle),
+    final Widget list = kIsWeb
+        ? ListView.builder(
+            itemCount: _taskRows.length,
+            itemBuilder: (context, index) {
+              // En web el arrastre no es fiable en móviles (el navegador
+              // se queda con el toque para hacer scroll), así que aquí
+              // se usan botones de subir/bajar en su lugar.
+              return _buildTaskCard(
+                index,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_up),
+                      tooltip: 'Subir',
+                      visualDensity: VisualDensity.compact,
+                      style: IconButton.styleFrom(
+                        shape: const CircleBorder(),
+                        side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.2),
+                      ),
+                      onPressed: index == 0 ? null : () => _moveTaskTo(index, index - 1),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down),
+                      tooltip: 'Bajar',
+                      visualDensity: VisualDensity.compact,
+                      style: IconButton.styleFrom(
+                        shape: const CircleBorder(),
+                        side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.2),
+                      ),
+                      onPressed: index == _taskRows.length - 1 ? null : () => _moveTaskTo(index, index + 1),
+                    ),
+                  ],
+                ),
+              );
+            },
+          )
+        : ReorderableListView.builder(
+            buildDefaultDragHandles: false,
+            onReorder: _onReorderTasks,
+            itemCount: _taskRows.length,
+            itemBuilder: (context, index) {
+              final row = _taskRows[index];
+              return _buildTaskCard(
+                index,
+                key: ValueKey(row['id']),
+                trailing: ReorderableDelayedDragStartListener(
+                  index: index,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Tooltip(
+                      message: 'Mantén pulsado y arrastra para reordenar',
+                      child: Icon(Icons.drag_handle),
+                    ),
                   ),
                 ),
-              ),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => TaskDetailScreen(task: task),
-                  ),
-                ).then((_) {
-                  // Al volver de editar la tarea, recargamos para que el
-                  // cambio se vea reflejado aquí sin tener que salir y
-                  // volver a entrar a mano.
-                  if (mounted) _loadTasks();
-                });
-              },
-            ),
+              );
+            },
           );
+
+    return RefreshIndicator(
+      onRefresh: _loadTasks,
+      child: list,
+    );
+  }
+
+  /// Construye la tarjeta de una tarea. El [trailing] lo decide quien la
+  /// use: en web son botones de subir/bajar, y en la app nativa es el
+  /// icono de arrastrar.
+  Widget _buildTaskCard(int index, {required Widget trailing, Key? key}) {
+    final row = _taskRows[index];
+    final task = _taskFromRow(row);
+
+    return Card(
+      key: key,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: ListTile(
+        // Sin icono a la izquierda: así el nombre de la tarea
+        // aprovecha todo el ancho del recuadro.
+        title: Text(task.name),
+        trailing: trailing,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TaskDetailScreen(task: task),
+            ),
+          ).then((_) {
+            // Al volver de editar la tarea, recargamos para que el
+            // cambio se vea reflejado aquí sin tener que salir y
+            // volver a entrar a mano.
+            if (mounted) _loadTasks();
+          });
         },
       ),
     );

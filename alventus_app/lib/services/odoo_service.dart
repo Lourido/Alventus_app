@@ -1364,43 +1364,82 @@ class OdooService {
     required String name,
     String? description,
     String? deadline,
+    // Id que ya se conocía de la etapa (p.ej. resuelto cuando se creó la
+    // tarea sin conexión). Se prueba primero por id porque sobrevive a que
+    // hayan renombrado la etapa en Odoo entre que se creó la tarea y que
+    // le tocó sincronizar; es más fiable que el nombre.
+    int? stageId,
     String? stageName,
     String? fechaDesde,
     String? fechaHasta,
   }) async {
-    int? stageId;
+    int? resolvedStageId;
+    final wantsStage = stageId != null ||
+        (stageName != null && stageName.isNotEmpty && stageName != 'Sin etapa');
 
-    if (stageName != null && stageName.isNotEmpty && stageName != 'Sin etapa') {
+    if (wantsStage) {
       final stagesResult = await fetchProjectStages(projectId);
       if (stagesResult['success'] == true) {
         final stages = (stagesResult['result'] as List<dynamic>).cast<Map<String, dynamic>>();
-        for (final stage in stages) {
-          if ((stage['name']?.toString() ?? '') == stageName) {
-            stageId = stage['id'] as int?;
-            break;
+
+        // Primero por id: sigue siendo válido aunque hayan renombrado la etapa.
+        if (stageId != null) {
+          for (final stage in stages) {
+            if (stage['id'] as int? == stageId) {
+              resolvedStageId = stageId;
+              break;
+            }
+          }
+        }
+
+        // Si no había id o ya no existe (etapa borrada), se prueba por
+        // nombre, por compatibilidad con cambios en cola que solo
+        // guardaron el nombre.
+        if (resolvedStageId == null && stageName != null && stageName.isNotEmpty && stageName != 'Sin etapa') {
+          for (final stage in stages) {
+            if ((stage['name']?.toString() ?? '') == stageName) {
+              resolvedStageId = stage['id'] as int?;
+              break;
+            }
           }
         }
       }
+
+      if (resolvedStageId == null) {
+        // No se ha podido encontrar la etapa ni por id ni por nombre (lo
+        // más probable es que se haya borrado en Odoo, o renombrado sin
+        // que quedara el id guardado). La tarea se crea igualmente, pero
+        // sin etapa asignada, para no perderla; se avisa aquí para que
+        // quede constancia de por qué ha pasado.
+        print('⚠️ createTaskInStage: no se encontró la etapa (id=$stageId, nombre="$stageName") en el proyecto $projectId. '
+            'La tarea "$name" se creará sin etapa asignada ("Sin etapa").');
+      }
     }
 
+    Map<String, dynamic> result;
     if (fechaDesde != null || fechaHasta != null) {
-      return createTaskWithDates(
+      result = await createTaskWithDates(
         projectId: projectId,
         name: name,
         description: description,
-        stageId: stageId,
+        stageId: resolvedStageId,
         fechaDesde: fechaDesde,
         fechaHasta: fechaHasta,
       );
+    } else {
+      result = await createTask(
+        projectId: projectId,
+        name: name,
+        description: description,
+        deadline: deadline,
+        stageId: resolvedStageId,
+      );
     }
 
-    return createTask(
-      projectId: projectId,
-      name: name,
-      description: description,
-      deadline: deadline,
-      stageId: stageId,
-    );
+    if (result['success'] == true && wantsStage && resolvedStageId == null) {
+      result['stage_not_found'] = true;
+    }
+    return result;
   }
 
   /// Reasigna un conjunto de tareas a otra etapa (cambia su stage_id a

@@ -167,8 +167,29 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     // Caso 1: hoy es uno de los días del propio viaje.
     if (!today.isBefore(startDay) && !today.isAfter(endDay)) {
       final dayNumber = today.difference(startDay).inDays + 1;
-      final stageName = 'Día $dayNumber - '
+
+      // Nombre de repuesto (por si no hay conexión): se reconstruye a mano
+      // igual que antes. Pero si hay conexión, se busca abajo el nombre
+      // REAL de la etapa "Día N" en Odoo, para no perder cambios hechos
+      // directamente allí (renombrarla, cambiarle la fecha del texto...).
+      String stageName = 'Día $dayNumber - '
           '${today.day.toString().padLeft(2, '0')}/${today.month.toString().padLeft(2, '0')}/${today.year}';
+
+      final hasConnectionToday = await _syncService.checkConnectivity();
+      if (hasConnectionToday) {
+        final todayStagesResult = await _odooService.fetchProjectStages(widget.project.id);
+        if (todayStagesResult['success'] == true) {
+          final todayStages = (todayStagesResult['result'] as List<dynamic>).cast<Map<String, dynamic>>();
+          final todayDayPattern = RegExp('^Día\\s*$dayNumber(\\D|\$)');
+          for (final s in todayStages) {
+            final name = s['name']?.toString() ?? '';
+            if (todayDayPattern.hasMatch(name.trim())) {
+              stageName = name;
+              break;
+            }
+          }
+        }
+      }
 
       // Mensaje de bienvenida solo la primera vez que se abre hoy (se
       // recuerda con una clave por viaje + fecha de hoy).
