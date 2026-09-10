@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, Tar
 import 'package:flutter/material.dart';
 import 'speech_service.dart';
 import 'tts_service.dart';
+import 'local_dictation.dart';
 import 'dictation_formatter.dart';
 
 /// Campo de texto con botón de micrófono integrado.
@@ -107,6 +108,7 @@ class _MicTextFieldState extends State<MicTextField> {
   bool _isListening = false;
   bool _isSpeaking = false;
   bool _hasFocus = false;
+  bool _localModelLoading = false;
 
   // Si no nos pasan un FocusNode propio, creamos uno interno: lo
   // necesitamos para saber cuándo el campo tiene el foco (y así mostrar
@@ -151,6 +153,9 @@ class _MicTextFieldState extends State<MicTextField> {
     _internalFocusNode?.dispose();
     SpeechService.instance.stopListening(_listenerId);
     TtsService.instance.stop(_speakerId);
+    if (_useLocalDictation && _isListening) {
+      LocalDictation.cancel();
+    }
     super.dispose();
   }
 
@@ -425,25 +430,38 @@ class _MicTextFieldState extends State<MicTextField> {
     );
   }
 
-  /// En iPhone (Safari/WebKit), el reconocimiento de voz de Flutter Web
-  /// no funciona -- es un fallo conocido y sin arreglar de la propia
-  /// Safari (no de esta app: en la app nativa de iOS sí funcionaba,
-  /// porque usaba el reconocimiento de voz del propio sistema en vez
-  /// del que ofrece el navegador). En vez de dejar que el usuario lo
-  /// intente y nunca reconozca nada, aquí se deshabilita directamente.
-  /// En el resto de plataformas (Android, app nativa, escritorio) sigue
-  /// funcionando igual que siempre.
-  bool get _micUnsupportedHere => kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  /// En iPhone (Safari/WebKit), el reconocimiento de voz normal de
+  /// Flutter Web no funciona -- es un fallo conocido y sin arreglar de
+  /// la propia Safari (no de esta app: en la app nativa de iOS sí
+  /// funcionaba, porque usaba el reconocimiento de voz del propio
+  /// sistema en vez del que ofrece el navegador). Ahí, en vez de
+  /// deshabilitar el micro, se usa el dictado local de
+  /// local_dictation.dart (un modelo de voz a texto que corre dentro
+  /// del propio navegador, sin mandar el audio a ningún sitio). En el
+  /// resto de plataformas (Android, app nativa, escritorio, Mac) sigue
+  /// funcionando igual que siempre, con el reconocimiento normal.
+  bool get _useLocalDictation =>
+      kIsWeb && defaultTargetPlatform == TargetPlatform.iOS && LocalDictation.isSupported;
 
   Widget _buildMicButton() {
-    if (_micUnsupportedHere) {
+    if (_useLocalDictation) {
+      if (_localModelLoading) {
+        return const Padding(
+          padding: EdgeInsets.all(12),
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      }
       return IconButton(
-        tooltip:
-            'El dictado por voz no está disponible en Safari/iPhone '
-            '(es una limitación de Safari, no de esta app). Puedes '
-            'escribir el texto a mano.',
-        icon: Icon(Icons.mic_off, color: Colors.grey[400]),
-        onPressed: null,
+        tooltip: _isListening ? 'Detener dictado' : 'Dictar por voz (sin conexión)',
+        icon: Icon(
+          _isListening ? Icons.mic : Icons.mic_none,
+          color: _isListening ? widget.micActiveColor : widget.micColor,
+        ),
+        onPressed: _toggleLocalDictation,
       );
     }
 
@@ -454,6 +472,102 @@ class _MicTextFieldState extends State<MicTextField> {
         color: _isListening ? widget.micActiveColor : widget.micColor,
       ),
       onPressed: _toggleListening,
+    );
+  }
+
+  /// Igual que [_toggleListening] pero usando el dictado local
+  /// (LocalDictation) en vez de SpeechService. La primera vez que se usa
+  /// en este dispositivo, pide confirmación antes de descargar el
+  /// modelo (pesa bastante) y muestra un indicador de carga.
+  Future<void> _toggleLocalDictation() async {
+    if (_isListening) {
+      setState(() => _isListening = false);
+      final text = await LocalDictation.stop();
+      if (!mounted) return;
+      if (text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se ha reconocido ningún texto.')),
+        );
+        return;
+      }
+      _applyDictatedText(text, isFinal: true);
+      return;
+    }
+
+    // No tiene sentido escuchar dictado y leer en voz alta a la vez.
+    if (_isSpeaking) {
+      await TtsService.instance.stop(_speakerId);
+      setState(() => _isSpeaking = false);
+    }
+
+    if (!LocalDictation.isModelLoaded) {
+      final confirmed = await _confirmDownloadLocalModel();
+      if (confirmed != true) return;
+      if (!mounted) return;
+
+      setState(() => _localModelLoading = true);
+      final loaded = await LocalDictation.loadModel();
+      if (!mounted) return;
+      setState(() => _localModelLoading = false);
+
+      if (!loaded) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se pudo descargar el modelo de dictado. Comprueba tu '
+              'conexión e inténtalo de nuevo.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+    }
+
+    final controller = widget.controller;
+    final selection = controller.selection;
+    _insertStart = selection.isValid ? selection.start : controller.text.length;
+    _lastDictatedLength = 0;
+    _effectiveFocusNode.requestFocus();
+
+    final started = await LocalDictation.start();
+    if (!mounted) return;
+
+    if (started) {
+      setState(() => _isListening = true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo acceder al micrófono.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
+
+  Future<bool?> _confirmDownloadLocalModel() {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Dictado por voz'),
+        content: const Text(
+          'La primera vez hace falta descargar un modelo de dictado '
+          '(unos 150 MB) para que funcione en este teléfono. Se '
+          'descarga una sola vez: a partir de ahí, el dictado funciona '
+          'también sin conexión, y el audio no sale nunca de este '
+          'teléfono.\n\n¿Descargar ahora? (mejor con wifi)',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Ahora no'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Descargar'),
+          ),
+        ],
+      ),
     );
   }
 

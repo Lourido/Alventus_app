@@ -51,4 +51,11 @@ const List<ChangelogEntry> kChangelog = [
       'En la lista de etapas, el nombre y la descripción de cada una se ven ahora con el mismo tamaño de letra.',
     ],
   ),
+  ChangelogEntry(
+    version: 3,
+    date: '10 de septiembre de 2026',
+    changes: [
+      'En iPhone, el dictado por voz ya funciona: la primera vez pide descargar un modelo (una sola vez) y a partir de ahí funciona también sin conexión, sin que el audio salga nunca del teléfono.',
+    ],
+  ),
 ];
