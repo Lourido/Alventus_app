@@ -769,7 +769,7 @@ class _StagesScreenState extends State<StagesScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: ListTile(
         leading: const CircleAvatar(child: Icon(Icons.event)),
-        title: Text(stage.stageName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(stage.stageName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         // La descripción se ve y se puede editar siempre (tenga
         // texto o no), tocando esta zona en concreto -- el resto
         // del Card sigue abriendo las tareas de la etapa al tocarlo.
@@ -788,8 +788,8 @@ class _StagesScreenState extends State<StagesScreen> {
                               ? stage.description!
                               : 'Sin descripción · toca para añadir',
                           style: (stage.description != null && stage.description!.isNotEmpty)
-                              ? null
-                              : TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+                              ? const TextStyle(fontSize: 16)
+                              : TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic, fontSize: 16),
                         ),
                       ),
                       const SizedBox(width: 4),
