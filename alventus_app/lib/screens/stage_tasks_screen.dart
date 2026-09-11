@@ -97,7 +97,10 @@ bool _isValidTimeRange(TimeOfDay? from, TimeOfDay? to) {
 class _StageNavEntry {
   final String name;
   final String? description;
-  _StageNavEntry(this.name, this.description);
+  // Orden real de Odoo (campo "sequence" de project.task.type), cuando
+  // se conoce -- ver el comentario en _sortStageNav.
+  final int? sequence;
+  _StageNavEntry(this.name, this.description, {this.sequence});
 }
 
 /// Reconoce específicamente la etapa "Día 0", para que se ordene siempre
@@ -126,7 +129,11 @@ DateTime? _parseStageNameDate(String name) {
 }
 
 /// Mismo orden que la lista de "Etapas" (stages_screen.dart): "Día 0"
-/// siempre primero, luego por fecha (a partir del propio nombre), y
+/// siempre primero; si se conoce la secuencia real de Odoo (viene de
+/// una consulta en vivo, no del respaldo offline) esa manda -- es el
+/// mismo orden que se ve en la propia web de Odoo, aunque el usuario
+/// reordene las etapas allí sin tocar nombres ni fechas; si no,
+/// se cae a ordenar por fecha (a partir del propio nombre), y
 /// alfabético como último recurso si no hay fecha.
 void _sortStageNav(List<_StageNavEntry> items) {
   items.sort((a, b) {
@@ -135,6 +142,10 @@ void _sortStageNav(List<_StageNavEntry> items) {
     if (aZero && !bZero) return -1;
     if (bZero && !aZero) return 1;
     if (aZero && bZero) return 0;
+
+    if (a.sequence != null && b.sequence != null) {
+      return a.sequence!.compareTo(b.sequence!);
+    }
 
     final aDate = _parseStageNameDate(a.name);
     final bDate = _parseStageNameDate(b.name);
@@ -261,7 +272,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
               final name = s['name']?.toString() ?? '';
               final descRaw = s['description'];
               final description = descRaw is String ? stripHtmlToPlainText(descRaw) : null;
-              return _StageNavEntry(name, description);
+              return _StageNavEntry(name, description, sequence: s['sequence'] as int?);
             })
             .where((e) => e.name.isNotEmpty)
             .toList();

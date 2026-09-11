@@ -65,6 +65,11 @@ class _StageGroup {
   final DateTime? sortDate;
   final String? dateLabel;
   final String? description;
+  // Orden real de Odoo (campo "sequence" de project.task.type). Solo se
+  // conoce cuando la etapa viene de una consulta en vivo a Odoo (no en
+  // el respaldo offline, que solo agrupa tareas locales); se usa como
+  // criterio de orden preferente -- ver _sortStages.
+  final int? sequence;
 
   _StageGroup({
     required this.stageId,
@@ -74,6 +79,7 @@ class _StageGroup {
     this.sortDate,
     this.dateLabel,
     this.description,
+    this.sequence,
   });
 }
 
@@ -192,6 +198,7 @@ class _StagesScreenState extends State<StagesScreen> {
         sortDate: minDate,
         dateLabel: dateLabel,
         description: description,
+        sequence: s['sequence'] as int?,
       );
     }).toList();
 
@@ -270,6 +277,16 @@ class _StagesScreenState extends State<StagesScreen> {
       if (aIsZero && !bIsZero) return -1;
       if (bIsZero && !aIsZero) return 1;
       if (aIsZero && bIsZero) return 0;
+
+      // Si las dos etapas tienen secuencia real de Odoo, esa es la que
+      // manda: es el mismo orden que se ve en la propia web de Odoo
+      // (project.task.type se pide ya ordenada por "sequence asc"), y
+      // no depende de qué fecha tengan las tareas de cada una -- así
+      // que si el usuario reordena las etapas desde Odoo directamente
+      // (sin tocar nombres/fechas), la app lo respeta igual.
+      if (a.sequence != null && b.sequence != null) {
+        return a.sequence!.compareTo(b.sequence!);
+      }
 
       if (a.sortDate == null && b.sortDate == null) return a.stageName.compareTo(b.stageName);
       if (a.sortDate == null) return 1;
