@@ -501,25 +501,20 @@ class _MicTextFieldState extends State<MicTextField> {
     }
 
     if (!LocalDictation.isModelLoaded) {
-      final confirmed = await _confirmDownloadLocalModel();
-      if (confirmed != true) return;
+      // _confirmDownloadLocalModel ya pide el permiso de micrófono
+      // dentro del propio botón "Descargar" (ver el método más abajo
+      // para el porqué) y devuelve si se concedió o no.
+      final hasMicPermission = await _confirmDownloadLocalModel();
       if (!mounted) return;
-
-      // Pedimos el permiso de micrófono ANTES de descargar el modelo
-      // (a propósito, no es un despiste): en iPhone, con la app añadida
-      // a la pantalla de inicio, la primera vez que se pide el
-      // micrófono puede hacer que Safari recargue la app. Pidiéndolo
-      // aquí, si pasa, es barato (no se ha descargado nada todavía) en
-      // vez de perder una descarga de más de 100 MB justo al terminar.
-      final hasMicPermission = await LocalDictation.requestMicPermission();
-      if (!mounted) return;
-      if (!hasMicPermission) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo acceder al micrófono.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+      if (hasMicPermission != true) {
+        if (hasMicPermission == false) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se pudo acceder al micrófono.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
         return;
       }
 
@@ -563,6 +558,12 @@ class _MicTextFieldState extends State<MicTextField> {
     }
   }
 
+  /// Muestra el diálogo de "hace falta descargar un modelo" y, si el
+  /// usuario pulsa "Descargar", pide el permiso de micrófono en ese
+  /// mismo toque. Devuelve null si el usuario cierra el diálogo sin
+  /// decidir o pulsa "Ahora no" (no se debe avisar de nada); true si
+  /// se concedió el permiso; false si se pulsó "Descargar" pero no se
+  /// consiguió acceso al micrófono (aquí sí hay que avisar).
   Future<bool?> _confirmDownloadLocalModel() {
     return showDialog<bool>(
       context: context,
@@ -604,11 +605,26 @@ class _MicTextFieldState extends State<MicTextField> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            // null (no false): "Ahora no" es que el usuario decide no
+            // descargar, no que haya fallado el permiso de micrófono
+            // -- el aviso naranja de "no se pudo acceder al micrófono"
+            // solo debe salir cuando de verdad se intentó y falló.
+            onPressed: () => Navigator.pop(dialogContext, null),
             child: const Text('Ahora no'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () async {
+              // Pedimos el permiso de micrófono AQUÍ, en el mismo toque
+              // del botón "Descargar" (no después, ya en otra función):
+              // en iPhone, si se pide más adelante -- aunque sea con un
+              // solo await de por medio -- Safari puede rechazarlo sin
+              // ni siquiera preguntar, por no considerarlo ya parte del
+              // gesto del usuario.
+              final granted = await LocalDictation.requestMicPermission();
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext, granted);
+              }
+            },
             child: const Text('Descargar'),
           ),
         ],
