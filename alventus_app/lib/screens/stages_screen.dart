@@ -399,13 +399,18 @@ class _StagesScreenState extends State<StagesScreen> {
     // Los ids de tarea que se van moviendo no cambian por el camino;
     // solo cambia a qué etapa están asignados. Vamos desplazándolos un
     // paso cada vez, como si se pulsara la flecha varias veces seguidas.
+    // La DESCRIPCIÓN de la etapa viaja solidaria con las tareas (se
+    // intercambia exactamente igual que ellas); el NOMBRE de la etapa,
+    // en cambio, se queda fijo en su sitio -- no se toca aquí.
     final movingIds = List<int>.from(_stages[oldIndex].taskIds);
+    final movingDescription = _stages[oldIndex].description ?? '';
     var current = oldIndex;
     bool allOk = true;
 
     while (current != newIndex) {
       final next = current + step;
       final displacedIds = List<int>.from(_stages[next].taskIds);
+      final displacedDescription = _stages[next].description ?? '';
 
       final resultMove = await _odooService.reassignTasksStage(
         taskIds: movingIds,
@@ -415,7 +420,18 @@ class _StagesScreenState extends State<StagesScreen> {
         taskIds: displacedIds,
         newStageId: _stages[current].stageId!,
       );
-      if (resultMove['success'] != true || resultDisplace['success'] != true) {
+      final resultDescMove = await _odooService.updateStageDescription(
+        stageId: _stages[next].stageId!,
+        description: movingDescription,
+      );
+      final resultDescDisplace = await _odooService.updateStageDescription(
+        stageId: _stages[current].stageId!,
+        description: displacedDescription,
+      );
+      if (resultMove['success'] != true ||
+          resultDisplace['success'] != true ||
+          resultDescMove['success'] != true ||
+          resultDescDisplace['success'] != true) {
         allOk = false;
       }
 
