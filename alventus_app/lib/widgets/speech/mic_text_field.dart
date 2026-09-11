@@ -568,12 +568,39 @@ class _MicTextFieldState extends State<MicTextField> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Dictado por voz'),
-        content: const Text(
-          'La primera vez hace falta descargar un modelo de dictado '
-          '(unos 40 MB) para que funcione en este teléfono. Se '
-          'descarga una sola vez: a partir de ahí, el dictado funciona '
-          'también sin conexión, y el audio no sale nunca de este '
-          'teléfono.\n\n¿Descargar ahora? (mejor con wifi)',
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'La primera vez hace falta descargar un modelo de dictado '
+                '(unos 40 MB) para que funcione en este teléfono. Se '
+                'descarga una sola vez: a partir de ahí, el dictado funciona '
+                'también sin conexión, y el audio no sale nunca de este '
+                'teléfono.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Si el teléfono no deja usar el micrófono, puede que haga '
+                'falta darle permiso a mano:',
+              ),
+              SizedBox(height: 8),
+              Text(
+                '• En iPhone: Ajustes → Safari → Micrófono → Permitir '
+                '(o "Preguntar").',
+              ),
+              SizedBox(height: 4),
+              Text(
+                '• En Android: Ajustes del teléfono → Aplicaciones → '
+                'Chrome (o el icono de esta app si la tienes añadida a '
+                'la pantalla de inicio) → Permisos → Micrófono → '
+                'Permitir.',
+              ),
+              SizedBox(height: 12),
+              Text('¿Descargar ahora? (mejor con wifi)'),
+            ],
+          ),
         ),
         actions: [
           TextButton(
