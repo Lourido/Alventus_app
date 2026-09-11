@@ -505,6 +505,24 @@ class _MicTextFieldState extends State<MicTextField> {
       if (confirmed != true) return;
       if (!mounted) return;
 
+      // Pedimos el permiso de micrófono ANTES de descargar el modelo
+      // (a propósito, no es un despiste): en iPhone, con la app añadida
+      // a la pantalla de inicio, la primera vez que se pide el
+      // micrófono puede hacer que Safari recargue la app. Pidiéndolo
+      // aquí, si pasa, es barato (no se ha descargado nada todavía) en
+      // vez de perder una descarga de más de 100 MB justo al terminar.
+      final hasMicPermission = await LocalDictation.requestMicPermission();
+      if (!mounted) return;
+      if (!hasMicPermission) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo acceder al micrófono.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
       setState(() => _localModelLoading = true);
       final loaded = await LocalDictation.loadModel();
       if (!mounted) return;

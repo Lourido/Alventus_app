@@ -38,6 +38,24 @@
     return !!transcriber;
   };
 
+  // Pide permiso de micrófono por su cuenta, sin grabar nada (solo abre
+  // y cierra el micrófono al momento). Se llama ANTES de descargar el
+  // modelo: en iPhone, cuando la app está añadida a la pantalla de
+  // inicio (modo standalone), la primera vez que una página pide el
+  // micrófono puede hacer que Safari recargue la app -- pidiéndolo aquí,
+  // antes de la descarga pesada del modelo, esa recarga (si pasa) es
+  // barata, en vez de perder una descarga de varios MB ya hecha.
+  window.dictationRequestMicPermission = async function () {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(function (t) { t.stop(); });
+      return true;
+    } catch (e) {
+      console.error('dictationRequestMicPermission error:', e);
+      return false;
+    }
+  };
+
   // Descarga e inicializa el modelo. Se puede llamar varias veces
   // seguidas (p. ej. desde dos campos de texto distintos) sin que se
   // dispare la descarga dos veces: la segunda llamada espera a que

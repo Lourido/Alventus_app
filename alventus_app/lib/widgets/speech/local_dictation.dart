@@ -15,6 +15,9 @@ external bool _dictationIsSupported();
 @JS('dictationIsLoaded')
 external bool _dictationIsLoaded();
 
+@JS('dictationRequestMicPermission')
+external JSPromise<JSBoolean> _dictationRequestMicPermission();
+
 @JS('dictationLoad')
 external JSPromise<JSBoolean> _dictationLoad();
 
@@ -43,6 +46,19 @@ class LocalDictation {
   static bool get isModelLoaded {
     try {
       return _dictationIsLoaded();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Pide permiso de micrófono sin grabar nada todavía (solo abre y
+  /// cierra el micrófono al momento). Se llama antes de descargar el
+  /// modelo -- ver el comentario en dictationRequestMicPermission de
+  /// web/dictation.js para el porqué.
+  static Future<bool> requestMicPermission() async {
+    try {
+      final result = await _dictationRequestMicPermission().toDart;
+      return result.toDart;
     } catch (_) {
       return false;
     }
