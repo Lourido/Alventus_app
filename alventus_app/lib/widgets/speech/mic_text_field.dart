@@ -570,7 +570,7 @@ class _MicTextFieldState extends State<MicTextField> {
         title: const Text('Dictado por voz'),
         content: const Text(
           'La primera vez hace falta descargar un modelo de dictado '
-          '(unos 150 MB) para que funcione en este teléfono. Se '
+          '(unos 40 MB) para que funcione en este teléfono. Se '
           'descarga una sola vez: a partir de ahí, el dictado funciona '
           'también sin conexión, y el audio no sale nunca de este '
           'teléfono.\n\n¿Descargar ahora? (mejor con wifi)',

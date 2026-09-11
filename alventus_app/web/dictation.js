@@ -5,10 +5,11 @@
 //
 // No manda el audio a ningun servidor: la transcripcion corre entera
 // en el propio telefono usando @xenova/transformers (una version de
-// Whisper compilada a WebAssembly). El modelo (~150 MB, "whisper-base")
-// se descarga la primera vez que se usa y luego queda cacheado por el
-// propio navegador (Cache Storage), asi que a partir de ahi funciona
-// tambien sin conexion.
+// Whisper compilada a WebAssembly). El modelo se descarga la primera
+// vez que se usa y luego queda cacheado por el propio navegador
+// (Cache Storage), asi que a partir de ahi funciona tambien sin
+// conexion. Cual modelo exactamente: ver la nota en la constante
+// MODEL_ID mas abajo.
 //
 // Expone unas pocas funciones sueltas en "window" (en vez de un modulo
 // ES, para no complicar la interoperabilidad con Dart): esta pensado
@@ -60,6 +61,15 @@
   // seguidas (p. ej. desde dos campos de texto distintos) sin que se
   // dispare la descarga dos veces: la segunda llamada espera a que
   // termine la primera.
+  // "tiny" en vez de "base": en iPhone, con la app anadida a la
+  // pantalla de inicio (modo standalone), cargar el modelo "base"
+  // (unos 150 MB) parecia hacer que Safari reiniciara la app a mitad
+  // de carga -- probablemente por quedarse sin memoria, ya que el
+  // propio motor de Flutter (CanvasKit) tambien usa bastante memoria
+  // a la vez. "tiny" (unos 40 MB) reduce mucho ese riesgo; ya se
+  // probo por separado y reconoce bien el espanol.
+  const MODEL_ID = 'Xenova/whisper-tiny';
+
   window.dictationLoad = function () {
     if (transcriber) return Promise.resolve(true);
     if (loadingPromise) return loadingPromise;
@@ -67,7 +77,7 @@
     loadingPromise = (async () => {
       try {
         const mod = await ensureTransformers();
-        transcriber = await mod.pipeline('automatic-speech-recognition', 'Xenova/whisper-base', {
+        transcriber = await mod.pipeline('automatic-speech-recognition', MODEL_ID, {
           quantized: true,
         });
         return true;
