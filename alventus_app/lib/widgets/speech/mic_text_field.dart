@@ -548,6 +548,18 @@ class _MicTextFieldState extends State<MicTextField> {
 
     if (started) {
       setState(() => _isListening = true);
+      // Recordatorio de cómo funciona (el icono cambia de color, pero
+      // eso solo no es evidente para todo el mundo): se repite cada
+      // vez que se empieza a grabar, no solo la primera.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Habla ahora. Cuando termines, pulsa el micrófono en rojo '
+            'para parar y pasar el texto al campo.',
+          ),
+          duration: Duration(seconds: 3),
+        ),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -597,6 +609,13 @@ class _MicTextFieldState extends State<MicTextField> {
                 'Chrome (o el icono de esta app si la tienes añadida a '
                 'la pantalla de inicio) → Permisos → Micrófono → '
                 'Permitir.',
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Cómo se usa: pulsa el micrófono (en verde) para '
+                'empezar a hablar, y vuelve a pulsarlo (ya en rojo, '
+                'mientras graba) para terminar y pasar el texto al '
+                'campo.',
               ),
               SizedBox(height: 12),
               Text('¿Descargar ahora? (mejor con wifi)'),
