@@ -12,6 +12,7 @@ Future<void> checkAndShowChangelog(BuildContext context) async {
 
   await showDialog(
     context: context,
+    barrierDismissible: false,
     builder: (dialogContext) => _ChangelogDialog(entries: entries),
   );
 
@@ -25,44 +26,49 @@ class _ChangelogDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Novedades'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final entry in entries) ...[
-                Text(
-                  entry.date,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 6),
-                for (final change in entry.changes)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('•  '),
-                        Expanded(child: Text(change)),
-                      ],
-                    ),
+    // No se puede cerrar tocando fuera ni con el botón "atrás": el
+    // usuario tiene que leerlo y pulsar el botón "Leído" a propósito.
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
+        title: const Text('Novedades'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final entry in entries) ...[
+                  Text(
+                    entry.date,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                const SizedBox(height: 12),
+                  const SizedBox(height: 6),
+                  for (final change in entry.changes)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('•  '),
+                          Expanded(child: Text(change)),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                ],
               ],
-            ],
+            ),
           ),
         ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Leído'),
+          ),
+        ],
       ),
-      actions: [
-        ElevatedButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Vale, entendido'),
-        ),
-      ],
     );
   }
 }
