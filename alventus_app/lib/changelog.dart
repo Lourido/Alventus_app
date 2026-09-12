@@ -58,4 +58,15 @@ const List<ChangelogEntry> kChangelog = [
       'En iPhone, el dictado por voz ya funciona: la primera vez pide descargar un modelo (una sola vez) y a partir de ahí funciona también sin conexión, sin que el audio salga nunca del teléfono.',
     ],
   ),
+  ChangelogEntry(
+    version: 4,
+    date: '12 de septiembre de 2026',
+    changes: [
+      'En iPhone ya se pueden ver y descargar bien los archivos (fotos, PDFs, etc.).',
+      'Nuevo botón para borrar una tarea suelta dentro de una etapa.',
+      'El email de "sugerencias" de la pantalla de inicio se ve ahora más destacado.',
+      'Arreglado el orden de las etapas cuando se reordenan directamente en Odoo.',
+      'Al mover una etapa arriba o abajo, su descripción se mueve ahora junto con las tareas.',
+    ],
+  ),
 ];
