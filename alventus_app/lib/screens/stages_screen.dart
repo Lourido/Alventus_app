@@ -137,15 +137,15 @@ class _StagesScreenState extends State<StagesScreen> {
     if (!mounted) return;
 
     if (!hasConnection) {
-      // Sin conexión no podemos consultar las etapas reales de Odoo (no
-      // se guardan en la base local); mostramos lo que haya en caché de
-      // tareas, agrupado como antes (las etapas vacías no se verán hasta
-      // que haya conexión, pero es lo máximo que se puede hacer offline).
+      // Sin conexión se usan las etapas guardadas en el teléfono la
+      // última vez que hubo conexión (con su id y su descripción), y las
+      // tareas locales solo para contar cuántas tiene cada una.
       final rows = await _localDb.getTasks(widget.project.id);
+      final cached = await _localDb.getStages(widget.project.id);
       if (!mounted) return;
       setState(() {
         _isOffline = true;
-        _stages = _buildGroupsFromLocalTasksOnly(rows);
+        _stages = _buildGroupsOffline(cached, rows);
         _isLoading = false;
       });
       return;
@@ -159,12 +159,16 @@ class _StagesScreenState extends State<StagesScreen> {
     if (!mounted) return;
 
     if (stagesResult['success'] != true) {
-      // Si falla la consulta de etapas reales, se recurre al agrupado
-      // local como red de seguridad (mismo comportamiento de antes), pero
-      // se avisa: hay conexión y aun así no se ha podido traer de Odoo.
+      // Si no se ha podido traer la lista de etapas de Odoo, se usan las
+      // que quedaron guardadas en el teléfono la última vez (con su id y
+      // su descripción). Es el caso normal en modo avión, porque en web
+      // la comprobación de conexión de más arriba es optimista a
+      // propósito y solo el intento real contra Odoo lo descubre.
+      final cached = await _localDb.getStages(widget.project.id);
+      if (!mounted) return;
       setState(() {
-        _isOffline = false;
-        _stages = _buildGroupsFromLocalTasksOnly(rows);
+        _isOffline = true;
+        _stages = _buildGroupsOffline(cached, rows);
         _isLoading = false;
       });
       _warnSyncFailed();
@@ -216,6 +220,23 @@ class _StagesScreenState extends State<StagesScreen> {
 
     _sortStages(stageGroups);
 
+    // Se guardan en el teléfono para poder seguir viéndolas (y
+    // moviéndolas/editándolas) cuando no haya conexión.
+    await _localDb.saveStages(
+      widget.project.id,
+      stageGroups
+          .where((g) => g.stageId != null)
+          .map((g) => {
+                'id': g.stageId,
+                'name': g.stageName,
+                'description': g.description,
+                'sequence': g.sequence ?? 0,
+              })
+          .toList(),
+    );
+
+    if (!mounted) return;
+
     setState(() {
       _isOffline = false;
       _stages = stageGroups;
@@ -235,6 +256,71 @@ class _StagesScreenState extends State<StagesScreen> {
         backgroundColor: Colors.orange,
       ),
     );
+  }
+
+  /// Arma la lista de etapas sin conexión, a partir de las etapas
+  /// guardadas en el teléfono (que sí traen id, descripción y orden) más
+  /// las tareas locales para contar cuántas tiene cada una.
+  ///
+  /// Si todavía no hubiera ninguna etapa guardada (por ejemplo, en una
+  /// instalación nueva que nunca ha llegado a abrir este viaje con
+  /// conexión), se recurre al respaldo de siempre: agrupar solo por el
+  /// nombre de etapa que lleva cada tarea, sin id ni descripción.
+  List<_StageGroup> _buildGroupsOffline(
+    List<Map<String, dynamic>> cachedStages,
+    List<Map<String, dynamic>> rows,
+  ) {
+    if (cachedStages.isEmpty) return _buildGroupsFromLocalTasksOnly(rows);
+
+    final tasksByStageName = _groupTasksByStageName(rows);
+    final knownNames = <String>{};
+
+    final groups = cachedStages.map((s) {
+      final name = s['name']?.toString() ?? '';
+      knownNames.add(name);
+      final tasks = tasksByStageName[name] ?? [];
+      final parsed = _parseNumberedStage(name);
+      final minDate = _minDateOf(tasks) ?? parsed?.date;
+      final dateLabel = minDate != null
+          ? '${minDate.day.toString().padLeft(2, '0')}/${minDate.month.toString().padLeft(2, '0')}/${minDate.year}'
+          : null;
+      final description = s['description']?.toString();
+
+      return _StageGroup(
+        stageId: s['id'] as int?,
+        stageName: name,
+        taskCount: tasks.length,
+        taskIds: tasks.map((t) => t['id'] as int).toList(),
+        sortDate: minDate,
+        dateLabel: dateLabel,
+        description: (description != null && description.isNotEmpty) ? description : null,
+        sequence: s['sequence'] as int?,
+      );
+    }).toList();
+
+    // Tareas cuyo nombre de etapa no está entre las guardadas (por
+    // ejemplo "Sin etapa", o una etapa creada en Odoo después de la
+    // última vez que hubo conexión): se añaden aparte, como antes.
+    for (final entry in tasksByStageName.entries) {
+      if (knownNames.contains(entry.key)) continue;
+      final tasks = entry.value;
+      final parsed = _parseNumberedStage(entry.key);
+      final minDate = _minDateOf(tasks) ?? parsed?.date;
+      final dateLabel = minDate != null
+          ? '${minDate.day.toString().padLeft(2, '0')}/${minDate.month.toString().padLeft(2, '0')}/${minDate.year}'
+          : null;
+      groups.add(_StageGroup(
+        stageId: null,
+        stageName: entry.key,
+        taskCount: tasks.length,
+        taskIds: tasks.map((t) => t['id'] as int).toList(),
+        sortDate: minDate,
+        dateLabel: dateLabel,
+      ));
+    }
+
+    _sortStages(groups);
+    return groups;
   }
 
   /// Respaldo para el modo offline: agrupa solo a partir de las tareas
@@ -345,7 +431,7 @@ class _StagesScreenState extends State<StagesScreen> {
     if (newDescription == null) return; // cancelado
     if (newDescription == (stage.description ?? '')) return; // sin cambios
 
-    final hasConnection = await _syncService.checkConnectivity();
+    final hasConnection = await _syncService.hasRealNetwork();
 
     if (hasConnection) {
       final result = await _odooService.updateStageDescription(
@@ -376,6 +462,7 @@ class _StagesScreenState extends State<StagesScreen> {
       recordId: stage.stageId!,
       data: {'description': newDescription},
     );
+    await _localDb.updateStageDescriptionLocal(stage.stageId!, newDescription);
 
     if (!mounted) return;
 
@@ -397,7 +484,7 @@ class _StagesScreenState extends State<StagesScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Sin conexión: la descripción se ha guardado en tu teléfono y se sincronizará con Odoo cuando vuelvas a tener cobertura.'),
+        content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
         backgroundColor: Colors.orange,
       ),
     );
@@ -434,7 +521,7 @@ class _StagesScreenState extends State<StagesScreen> {
     // (tareas + descripciones) y se encola para sincronizar con Odoo en
     // cuanto vuelva la cobertura -- igual que ya se hace en la edición de
     // tareas (ver sync_service.dart).
-    final hasConnection = await _syncService.checkConnectivity();
+    final hasConnection = await _syncService.hasRealNetwork();
 
     setState(() => _isLoading = true);
 
@@ -515,6 +602,8 @@ class _StagesScreenState extends State<StagesScreen> {
           recordId: _stages[current].stageId,
           data: {'description': displacedDescription},
         );
+        await _localDb.updateStageDescriptionLocal(_stages[next].stageId!, movingDescription);
+        await _localDb.updateStageDescriptionLocal(_stages[current].stageId!, displacedDescription);
       }
 
       updatedStages[next] = _StageGroup(
@@ -549,7 +638,7 @@ class _StagesScreenState extends State<StagesScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Sin conexión: el movimiento se ha guardado en tu teléfono y se sincronizará con Odoo cuando vuelvas a tener cobertura.'),
+          content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
           backgroundColor: Colors.orange,
         ),
       );

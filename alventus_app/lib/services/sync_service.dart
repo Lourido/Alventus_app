@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'odoo_service.dart';
 import 'local_database_service.dart';
+import '../utils/web_connectivity.dart';
 
 class SyncService {
   // Singleton
@@ -58,7 +59,12 @@ class SyncService {
     return results.any((result) => result != ConnectivityResult.none);
   }
 
-  /// Verifica la conectividad actual
+  /// Verifica la conectividad actual.
+  ///
+  /// OJO: en web esto responde SIEMPRE que sí hay conexión, a propósito
+  /// (ver el comentario de _checkConnectivity). Sirve para decidir si
+  /// merece la pena intentar hablar con Odoo, no para saber si de verdad
+  /// hay red. Para eso está [hasRealNetwork].
   Future<bool> checkConnectivity() async {
     if (kIsWeb) {
       _isOnline = true;
@@ -67,6 +73,24 @@ class SyncService {
     final results = await _connectivity.checkConnectivity();
     _isOnline = _checkConnectivity(results);
     return _isOnline;
+  }
+
+  /// Dice si hay red de verdad ahora mismo, sin el "optimismo" que
+  /// [checkConnectivity] aplica en web.
+  ///
+  /// Es lo que hay que usar antes de GUARDAR algo: si no hay red, en vez
+  /// de intentarlo contra Odoo y perder el cambio, se guarda en el
+  /// teléfono y se encola para sincronizar más tarde. En web se pregunta
+  /// directamente al navegador (navigator.onLine), que en modo avión
+  /// responde que no hay conexión de forma fiable, incluso en Safari;
+  /// en Android/iOS nativo se usa el plugin de siempre.
+  Future<bool> hasRealNetwork() async {
+    if (kIsWeb) {
+      final online = browserSaysOnline();
+      _isOnline = online;
+      return online;
+    }
+    return checkConnectivity();
   }
 
   // ============ SINCRONIZACIÓN DE CAMBIOS PENDIENTES ============
@@ -614,6 +638,23 @@ class SyncService {
           return result['success'] == true;
         }
 
+        // Reordenar tareas dentro de una etapa (encolado al moverlas sin
+        // conexión): va por su propio método en Odoo.
+        if (data.containsKey('sequence')) {
+          final newSequence = data['sequence'] is int
+              ? data['sequence'] as int
+              : int.tryParse(data['sequence'].toString());
+          if (newSequence == null) return false;
+
+          print('🔄 _syncUpdate: Reordenando tarea $recordId a la posición $newSequence');
+          final result = await _odooService.updateTaskSequence(
+            taskId: recordId,
+            sequence: newSequence,
+          );
+          print('🔄 _syncUpdate: Resultado = ${result['success']}');
+          return result['success'] == true;
+        }
+
         print('🔄 _syncUpdate: Actualizando tarea $recordId');
         print('🔄 _syncUpdate: name="${data["name"]}", description="${data["description"]}"');
 
@@ -621,6 +662,8 @@ class SyncService {
           taskId: recordId,
           name: data['name']?.toString(),
           description: data['description']?.toString(),
+          fechaDesde: data['fecha_desde']?.toString(),
+          fechaHasta: data['fecha_hasta']?.toString(),
         );
 
         print('🔄 _syncUpdate: Resultado = ${result['success']}');

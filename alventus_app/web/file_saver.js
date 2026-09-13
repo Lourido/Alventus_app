@@ -1,4 +1,4 @@
-// Descarga de archivos en Flutter Web.
+﻿// Descarga de archivos en Flutter Web.
 //
 // Sustituye al mecanismo anterior (URL de datos "data:" abierta con
 // url_launcher / window.open), que en iPhone/Safari fallaba en dos
@@ -41,5 +41,25 @@ window.saveBytesAsFile = function (base64Data, mimeType, fileName) {
   } catch (e) {
     console.error('saveBytesAsFile error:', e);
     return false;
+  }
+};
+
+// Dice si el navegador cree que hay conexión de red ahora mismo.
+//
+// Hace falta porque el plugin de conectividad de Flutter no es fiable en
+// web (sobre todo en Safari), y por eso la app daba por hecho que SIEMPRE
+// hay conexión cuando corre en el navegador. Consecuencia: en modo avión
+// no se enteraba de que no había red, intentaba hablar con Odoo, fallaba,
+// y el cambio se perdía en vez de guardarse para más tarde.
+//
+// navigator.onLine sí está soportado en todos los navegadores (incluido
+// Safari en iPhone) y en modo avión devuelve false de forma fiable. Si
+// dijera true sin haber conexión de verdad, la app se comporta como antes
+// (lo intenta y avisa si falla), así que nunca es peor que lo que había.
+window.appIsOnline = function () {
+  try {
+    return navigator.onLine !== false;
+  } catch (e) {
+    return true;
   }
 };

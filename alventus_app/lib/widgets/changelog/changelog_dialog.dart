@@ -10,13 +10,22 @@ Future<void> checkAndShowChangelog(BuildContext context) async {
   if (entries.isEmpty) return;
   if (!context.mounted) return;
 
-  await showDialog(
+  // Solo se dan por vistas las novedades si el usuario ha pulsado de
+  // verdad el botón "Entendido" (que es quien devuelve true). Antes se
+  // marcaban como vistas en cuanto el diálogo se cerraba por cualquier
+  // motivo -- y si otra cosa lo cerraba por su cuenta (pasó con la
+  // navegación de la pantalla de carga), las novedades se quedaban
+  // marcadas como leídas sin que nadie las hubiera llegado a leer, y ya
+  // no se volvían a enseñar nunca.
+  final confirmed = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (dialogContext) => _ChangelogDialog(entries: entries),
   );
 
-  await ChangelogService.markAllSeen();
+  if (confirmed == true) {
+    await ChangelogService.markAllSeen();
+  }
 }
 
 class _ChangelogDialog extends StatelessWidget {
@@ -64,7 +73,7 @@ class _ChangelogDialog extends StatelessWidget {
         ),
         actions: [
           ElevatedButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, true),
             child: const Text('Entendido'),
           ),
         ],

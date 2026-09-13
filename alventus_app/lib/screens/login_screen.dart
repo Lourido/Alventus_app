@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../services/odoo_service.dart';
 import '../services/storage_service.dart';
@@ -95,7 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       print('❌ _login: Login fallido: ${result['error']}');
       setState(() {
-        _errorMessage = result['error'] ?? 'Error de autenticación';
+        _errorMessage = result['error'] ?? 'Cachissssss que no me coincide ... ';
         _isLoading = false;
       });
     }
@@ -126,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'No hay credenciales guardadas. Inicia sesión con conexión primero.';
+        _errorMessage = 'No te tengo guardado. Será porque es la primera vez que entras aquí. Vuelve cuando haya conexión.';
       });
     }
   }

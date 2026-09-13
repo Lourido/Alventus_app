@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'select_trip_to_copy_screen.dart';
 import 'create_trip_form_screen.dart';
 

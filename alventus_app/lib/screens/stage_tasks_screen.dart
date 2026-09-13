@@ -424,17 +424,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   /// orden. La usan tanto el arrastre (app nativa) como los botones de
   /// subir/bajar (web).
   Future<void> _moveTaskTo(int oldIndex, int newIndex) async {
-    final hasConnection = await _syncService.checkConnectivity();
-    if (!hasConnection) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Se necesita conexión a internet para reordenar tareas'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
+    final hasConnection = await _syncService.hasRealNetwork();
 
     // Se recoloca la tarea en su nueva posición y se renumeran todas
     // según el nuevo orden en pantalla (más simple y fiable que ir
@@ -448,6 +438,26 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       _isLoading = true;
     });
 
+    if (!hasConnection) {
+      // Sin conexión: se guarda el nuevo orden en el teléfono y se
+      // encola para mandarlo a Odoo cuando vuelva la cobertura.
+      for (var i = 0; i < reordered.length; i++) {
+        final taskId = reordered[i]['id'] as int;
+        await _localDb.updateTask(taskId, {'sequence': i * 10});
+        await _localDb.addPendingChange(
+          model: 'project.task',
+          action: 'update',
+          recordId: taskId,
+          data: {'sequence': i * 10},
+        );
+      }
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _warnSavedOffline();
+      return;
+    }
+
     for (var i = 0; i < reordered.length; i++) {
       await _odooService.updateTaskSequence(taskId: reordered[i]['id'] as int, sequence: i * 10);
     }
@@ -456,6 +466,18 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
     if (!mounted) return;
     await _loadTasks();
+  }
+
+  /// Aviso único para cuando un cambio no se ha podido mandar a Odoo por
+  /// falta de conexión, pero sí ha quedado guardado en el teléfono.
+  void _warnSavedOffline() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
   }
 
   /// Confirmar antes de borrar una tarea. Mismo patrón que ya se usaba
@@ -479,7 +501,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
               onPressed: () async {
                 Navigator.pop(dialogContext);
 
-                final hasConnection = await _syncService.checkConnectivity();
+                final hasConnection = await _syncService.hasRealNetwork();
 
                 if (hasConnection) {
                   final result = await _odooService.deleteTask(task.id);
@@ -509,7 +531,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Tarea borrada localmente. Se sincronizará cuando haya conexión.'),
+                      content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
                       backgroundColor: Colors.orange,
                     ),
                   );
@@ -628,7 +650,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     final fechaDesde = _combineStageDateWithTime(timeFrom);
     final fechaHasta = _combineStageDateWithTime(timeTo);
 
-    final hasConnection = await _syncService.checkConnectivity();
+    final hasConnection = await _syncService.hasRealNetwork();
 
     if (hasConnection) {
       final result = await _odooService.createTaskInStage(
@@ -695,7 +717,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Tarea guardada localmente. Se sincronizará cuando haya conexión.'),
+          content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -755,19 +777,27 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     final newValue = _combineStageDateWithTime(picked);
     if (newValue == null) return;
 
-    final hasConnection = await _syncService.checkConnectivity();
+    final hasConnection = await _syncService.hasRealNetwork();
+    final taskId = row['id'] as int;
+
     if (!hasConnection) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Se necesita conexión a internet para cambiar la hora'),
-          backgroundColor: Colors.orange,
-        ),
+      // Sin conexión: se guarda la hora en el teléfono y se encola para
+      // mandarla a Odoo cuando vuelva la cobertura.
+      final field = isFrom ? 'fecha_desde' : 'fecha_hasta';
+      await _localDb.updateTask(taskId, {field: newValue});
+      await _localDb.addPendingChange(
+        model: 'project.task',
+        action: 'update',
+        recordId: taskId,
+        data: {field: newValue},
       );
+
+      if (!mounted) return;
+      _warnSavedOffline();
+      await _loadTasks();
       return;
     }
 
-    final taskId = row['id'] as int;
     final result = await _odooService.updateTask(
       taskId: taskId,
       fechaDesde: isFrom ? newValue : null,

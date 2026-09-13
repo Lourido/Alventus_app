@@ -79,4 +79,23 @@ const List<ChangelogEntry> kChangelog = [
       'El aviso de "sin conexión" ahora deja claro que no hay conexión, en vez de decir que sí la hay.',
     ],
   ),
+  ChangelogEntry(
+    version: 6,
+    date: '13 de septiembre de 2026 (tarde)',
+    changes: [
+      'En modo avión ya se pueden mover las etapas y editar su descripción: el cambio se guarda en el teléfono y se manda a Odoo solo cuando vuelve la cobertura.',
+      'La app ya se da cuenta de verdad de cuándo te quedas sin cobertura (antes, en el móvil, daba por hecho que siempre había conexión).',
+      'Cada etapa se ve ahora en tres líneas: nombre con su día, descripción, y debajo los botones de bajar, borrar y subir.',
+      'Las etapas y sus descripciones se guardan en el teléfono, así que sin conexión se siguen viendo completas.',
+      'Este aviso de "Novedades" ya solo se da por leído cuando pulsas "Entendido".',
+    ],
+  ),
+  ChangelogEntry(
+    version: 7,
+    date: '13 de septiembre de 2026 (noche)',
+    changes: [
+      'Sin cobertura ya no sale ningún aviso rojo de error al guardar: el cambio se guarda en el teléfono y se avisa en naranja de que se subirá al servidor cuando vuelva la conexión.',
+      'Ahora también se pueden hacer sin cobertura estas dos cosas, que antes se bloqueaban: cambiar la hora de una tarea y reordenar las tareas de una etapa.',
+    ],
+  ),
 ];

@@ -124,7 +124,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       _isSaving = true;
     });
 
-    final hasConnection = await _syncService.checkConnectivity();
+    final hasConnection = await _syncService.hasRealNetwork();
 
     if (!mounted) return;
 
@@ -216,7 +216,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Cambios guardados en tu teléfono. Se sincronizarán cuando haya conexión.'),
+          content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
           backgroundColor: Colors.orange,
         ),
       );

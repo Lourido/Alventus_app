@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../utils/html_text.dart';
 import 'package:sqflite/sqflite.dart';
@@ -35,7 +35,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -163,6 +163,19 @@ class LocalDatabaseService {
         local_path TEXT,
         last_sync TEXT,
         FOREIGN KEY (project_id) REFERENCES projects (id)
+      )
+    ''');
+
+    // Etapas reales del viaje (project.task.type en Odoo), guardadas
+    // para poder verlas y editarlas sin conexión.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS stages (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        sequence INTEGER DEFAULT 0,
+        last_sync TEXT
       )
     ''');
 
@@ -318,6 +331,24 @@ class LocalDatabaseService {
         print('✅ Tabla de adjuntos de etapa (stage_attachments) añadida');
       } catch (e) {
         print('⚠️ No se pudo añadir stage_attachments (puede que ya exista): $e');
+      }
+    }
+
+    if (oldVersion < 9) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS stages (
+            id INTEGER PRIMARY KEY,
+            project_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            sequence INTEGER DEFAULT 0,
+            last_sync TEXT
+          )
+        ''');
+        print('✅ Tabla de etapas (stages) añadida');
+      } catch (e) {
+        print('⚠️ No se pudo añadir stages (puede que ya exista): $e');
       }
     }
   }
@@ -513,6 +544,59 @@ class LocalDatabaseService {
   Future<void> deleteAttachment(int attachmentId) async {
     final db = await database;
     await db.delete('attachments', where: 'id = ?', whereArgs: [attachmentId]);
+  }
+
+  // ============ ETAPAS ============
+
+  /// Guarda en el teléfono la lista de etapas reales de un viaje, tal
+  /// como viene de Odoo. Sin esto, al quedarse sin conexión la app no
+  /// tenía forma de saber el id ni la descripción de cada etapa (solo
+  /// el nombre, que va guardado dentro de cada tarea), y por eso no se
+  /// podían ni mover ni editar las etapas en modo avión.
+  Future<void> saveStages(int projectId, List<Map<String, dynamic>> stages) async {
+    final db = await database;
+
+    await db.delete('stages', where: 'project_id = ?', whereArgs: [projectId]);
+
+    final batch = db.batch();
+    for (final stage in stages) {
+      batch.insert(
+        'stages',
+        {
+          'id': stage['id'],
+          'project_id': projectId,
+          'name': stage['name'] ?? '',
+          'description': stage['description'],
+          'sequence': stage['sequence'] ?? 0,
+          'last_sync': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<Map<String, dynamic>>> getStages(int projectId) async {
+    final db = await database;
+    return await db.query(
+      'stages',
+      where: 'project_id = ?',
+      whereArgs: [projectId],
+      orderBy: 'sequence ASC',
+    );
+  }
+
+  /// Actualiza solo la descripción de una etapa ya guardada (se usa al
+  /// editarla o moverla sin conexión, para que el cambio siga ahí
+  /// aunque se salga y se vuelva a entrar en la pantalla).
+  Future<void> updateStageDescriptionLocal(int stageId, String description) async {
+    final db = await database;
+    await db.update(
+      'stages',
+      {'description': description},
+      where: 'id = ?',
+      whereArgs: [stageId],
+    );
   }
 
   // ============ CAMBIOS PENDIENTES ============
