@@ -479,7 +479,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       Navigator.pop(context); // Cerrar indicador
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Sin conexión: en el navegador hace falta conexión para subir archivos'),
+          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
           backgroundColor: Colors.red,
         ),
       );

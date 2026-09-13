@@ -85,7 +85,7 @@ class _TrashScreenState extends State<TrashScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Se necesita conexión a internet para restaurar'),
+          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
           backgroundColor: Colors.orange,
         ),
       );

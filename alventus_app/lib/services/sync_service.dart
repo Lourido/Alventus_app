@@ -47,43 +47,38 @@ class SyncService {
 
   /// Verifica si hay conexión a internet
   bool _checkConnectivity(List<ConnectivityResult> results) {
-    // En la versión web, el plugin connectivity_plus puede devolver "sin
-    // conexión" aunque sí la haya (es un problema conocido del plugin en
-    // web, más aún en Safari, que ni siquiera soporta la API de la que
-    // depende). Fiarse de ese "no hay conexión" en web hacía que la app
-    // se quedara mostrando datos guardados sin avisar, aunque hubiera
-    // conexión de verdad. En vez de eso, en web se asume que sí la hay y
-    // es el propio intento de hablar con Odoo el que decide si falla de
-    // verdad (y entonces sí se avisa, como en el resto de la app).
-    if (kIsWeb) return true;
+    // En web NO se usa connectivity_plus: puede devolver "sin conexión"
+    // aunque sí la haya (problema conocido del plugin en web, más aún en
+    // Safari, que ni siquiera soporta la API de la que depende). Durante
+    // un tiempo aquí se dio por hecho que en web SIEMPRE había conexión,
+    // para no mostrar datos viejos sin avisar; pero eso dejaba a la app
+    // sin enterarse nunca del modo avión, con lo que cada acción se
+    // lanzaba contra Odoo, fallaba, y el cambio se perdía.
+    //
+    // Ahora se pregunta al propio navegador (navigator.onLine), que sí
+    // está soportado en todas partes: en modo avión dice que no hay
+    // conexión de forma fiable, y nunca dice que no la hay teniéndola.
+    if (kIsWeb) return browserSaysOnline();
     return results.any((result) => result != ConnectivityResult.none);
   }
 
-  /// Verifica la conectividad actual.
-  ///
-  /// OJO: en web esto responde SIEMPRE que sí hay conexión, a propósito
-  /// (ver el comentario de _checkConnectivity). Sirve para decidir si
-  /// merece la pena intentar hablar con Odoo, no para saber si de verdad
-  /// hay red. Para eso está [hasRealNetwork].
+  /// Verifica la conectividad actual (en web, preguntando al navegador;
+  /// en Android/iOS nativo, con el plugin de conectividad).
   Future<bool> checkConnectivity() async {
     if (kIsWeb) {
-      _isOnline = true;
-      return true;
+      _isOnline = browserSaysOnline();
+      return _isOnline;
     }
     final results = await _connectivity.checkConnectivity();
     _isOnline = _checkConnectivity(results);
     return _isOnline;
   }
 
-  /// Dice si hay red de verdad ahora mismo, sin el "optimismo" que
-  /// [checkConnectivity] aplica en web.
-  ///
-  /// Es lo que hay que usar antes de GUARDAR algo: si no hay red, en vez
-  /// de intentarlo contra Odoo y perder el cambio, se guarda en el
-  /// teléfono y se encola para sincronizar más tarde. En web se pregunta
-  /// directamente al navegador (navigator.onLine), que en modo avión
-  /// responde que no hay conexión de forma fiable, incluso en Safari;
-  /// en Android/iOS nativo se usa el plugin de siempre.
+  /// Igual que [checkConnectivity]. Se mantiene con nombre propio
+  /// porque es el que usan las acciones de GUARDAR, donde equivocarse
+  /// significa perder un cambio del usuario: si no hay red, en vez de
+  /// intentarlo contra Odoo se guarda en el teléfono y se encola para
+  /// sincronizar cuando vuelva la cobertura.
   Future<bool> hasRealNetwork() async {
     if (kIsWeb) {
       final online = browserSaysOnline();

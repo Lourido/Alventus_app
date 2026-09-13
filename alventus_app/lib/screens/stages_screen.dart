@@ -386,7 +386,7 @@ class _StagesScreenState extends State<StagesScreen> {
     if (!hasConnection && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Se necesita conexión a internet para esta acción'),
+          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
           backgroundColor: Colors.orange,
         ),
       );

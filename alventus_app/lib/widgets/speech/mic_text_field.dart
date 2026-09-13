@@ -245,12 +245,22 @@ class _MicTextFieldState extends State<MicTextField> {
       _noResultsTimer?.cancel();
       _noResultsTimer = Timer(const Duration(seconds: 6), _handleNoResultsTimeout);
     } else if (mounted) {
+      // Se enseña el motivo real que haya dado el sistema (si lo hay):
+      // sin esto, cualquier fallo salía siempre como "revisa los
+      // permisos", aunque el problema fuera otro (por ejemplo, que el
+      // teléfono no tenga instalado el motor de dictado).
+      final reason = SpeechService.instance.lastError;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'No se pudo iniciar el reconocimiento de voz. '
-            'Revisa los permisos de micrófono.',
+            reason == null || reason.isEmpty
+                ? 'No se pudo iniciar el reconocimiento de voz. '
+                    'Revisa los permisos de micrófono.'
+                : 'No se pudo iniciar el reconocimiento de voz '
+                    '($reason). Revisa que el micrófono tenga permiso y '
+                    'que el teléfono tenga instalado el dictado por voz.',
           ),
+          duration: const Duration(seconds: 6),
         ),
       );
     }
@@ -268,14 +278,19 @@ class _MicTextFieldState extends State<MicTextField> {
     SpeechService.instance.stopListening(_listenerId);
     setState(() => _isListening = false);
 
+    final reason = SpeechService.instance.lastError;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          'El dictado por voz no ha reconocido nada. En Safari de iPhone '
-          'el dictado a veces no funciona (es un problema conocido de '
-          'Safari, no de esta app); puedes escribir el texto a mano.',
+          reason == null || reason.isEmpty
+              ? 'El dictado por voz no ha reconocido nada. Comprueba que '
+                  'el micrófono tenga permiso y que el teléfono tenga '
+                  'instalado el dictado en español; también puedes '
+                  'escribir el texto a mano.'
+              : 'El dictado por voz no ha reconocido nada ($reason). '
+                  'Puedes escribir el texto a mano.',
         ),
-        duration: Duration(seconds: 6),
+        duration: const Duration(seconds: 6),
       ),
     );
   }

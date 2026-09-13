@@ -843,7 +843,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     if (_stageId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No se puede adjuntar todavía: hace falta conexión la primera vez'),
+          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -880,7 +880,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       if (kIsWeb) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Sin conexión: en el navegador hace falta conexión para subir archivos'),
+            content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -1016,7 +1016,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     if (attachmentId < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Este archivo todavía no se ha subido, espera a que haya conexión'),
+          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
           backgroundColor: Colors.orange,
         ),
       );

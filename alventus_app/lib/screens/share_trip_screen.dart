@@ -41,7 +41,7 @@ class _ShareTripScreenState extends State<ShareTripScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Se necesita conexión a internet para compartir un viaje.';
+        _errorMessage = 'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
       });
       return;
     }

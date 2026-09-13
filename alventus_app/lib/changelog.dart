@@ -98,4 +98,13 @@ const List<ChangelogEntry> kChangelog = [
       'Ahora también se pueden hacer sin cobertura estas dos cosas, que antes se bloqueaban: cambiar la hora de una tarea y reordenar las tareas de una etapa.',
     ],
   ),
+  ChangelogEntry(
+    version: 8,
+    date: '13 de septiembre de 2026 (última)',
+    changes: [
+      'Arreglado el dictado por voz en Android: se pedía siempre el español de España aunque el teléfono no lo tuviera instalado con ese nombre exacto, y entonces el micrófono se activaba y se cerraba sin escuchar nada. Ahora se usa el idioma que el teléfono sí tenga, y si algo falla se explica el motivo.',
+      'Sin cobertura, la app ya se entera de verdad en todas las pantallas, no solo en algunas: por eso antes seguía intentando hablar con el servidor y fallaba casi todo.',
+      'Lo que de verdad necesita cobertura (borrar o añadir una etapa, compartir o duplicar un viaje, adjuntar archivos) lo dice ahora con un mensaje claro en vez de dar un error.',
+    ],
+  ),
 ];
