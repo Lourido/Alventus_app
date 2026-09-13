@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../../changelog.dart';
 import '../../services/changelog_service.dart';
 
@@ -27,7 +27,7 @@ class _ChangelogDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // No se puede cerrar tocando fuera ni con el botón "atrás": el
-    // usuario tiene que leerlo y pulsar el botón "Leído" a propósito.
+    // usuario tiene que leerlo y pulsar el botón "Entendido" a propósito.
     return PopScope(
       canPop: false,
       child: AlertDialog(
@@ -65,7 +65,7 @@ class _ChangelogDialog extends StatelessWidget {
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Leído'),
+            child: const Text('Entendido'),
           ),
         ],
       ),
