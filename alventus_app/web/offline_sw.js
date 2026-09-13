@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 // Service worker "de verdad" para que la app funcione sin conexión
 // (modo avión / sin cobertura).
@@ -23,24 +23,100 @@
 // se guarda también en una caché propia. Sin conexión, si la petición
 // a la red falla, se sirve la última copia buena que hubiera guardada.
 //
-// Importante: la primera vez que se instala la app hace falta tener
-// conexión al menos una vez (si no, no hay nada guardado todavía que
-// poder usar sin conexión). A partir de esa primera vez, ya funciona
-// también con el teléfono en modo avión.
+// IMPORTANTE (v2): con solo lo de arriba no basta. Esta app es de una
+// sola página (SPA): una vez arrancada, moverse por las pantallas NO
+// vuelve a pedir index.html/main.dart.js/etc. al servidor, así que si
+// nadie ha "pasado" antes por el service worker pidiendo esos
+// archivos, nunca llegan a guardarse en caché -- y en una instalación
+// nueva, el registro del service worker se hace a propósito después
+// del evento "load" de la página (para no retrasar el primer
+// arranque), con lo que la primera carga de todos los archivos
+// esenciales ocurre ANTES de que este service worker exista siquiera.
+// Resultado real observado: el usuario abre la app recién instalada,
+// navega con conexión sin problema, pero al probar el modo avión
+// después sale una pantalla en blanco -- porque, pese a haber usado
+// la app "en línea", nada se había guardado todavía en la caché.
+//
+// Por eso, en el evento "install" precargamos a propósito (con
+// fetch() directo desde aquí, sin depender de que la página los pida)
+// los archivos imprescindibles para arrancar: el propio index.html,
+// el motor de Flutter (main.dart.js, flutter_bootstrap.js), nuestros
+// scripts (dictation.js, file_saver.js), el manifest/iconos de la PWA,
+// y los archivos de la base de datos local (sqlite3.wasm,
+// sqflite_sw.js) -- sin esto último la app arrancaría pero la base de
+// datos local (sqflite_common_ffi_web) no podría inicializarse sin
+// conexión. Que falle la precarga de alguno de ellos (por ejemplo, si
+// el nombre cambiara en un futuro build) no debe impedir que el
+// service worker se instale igualmente -- por eso cada descarga va en
+// su propio try/catch.
 //
 // Solo se cachean peticiones GET al propio sitio (mismo origen); las
 // llamadas a Odoo (JSON-RPC, que además son POST) y cualquier recurso
 // de otro dominio (por ejemplo el modelo de dictado, cargado desde un
-// CDN) se dejan pasar tal cual, sin tocarlas aquí.
+// CDN, o CanvasKit desde gstatic.com) se dejan pasar tal cual, sin
+// tocarlas aquí -- ver pwa-status.md para el porqué de este último
+// caso concreto.
 
-const CACHE_NAME = 'alventus-offline-v1';
+const CACHE_NAME = 'alventus-offline-v2';
 
-self.addEventListener('install', () => {
+// Rutas relativas a la carpeta donde vive este propio archivo (que es
+// la misma carpeta donde se despliega toda la app), para que funcionen
+// igual sin importar bajo qué ruta del servidor esté publicada la PWA.
+const PRECACHE_URLS = [
+  './',
+  'index.html',
+  'main.dart.js',
+  'flutter_bootstrap.js',
+  'manifest.json',
+  'favicon.png',
+  'dictation.js',
+  'file_saver.js',
+  'sqlite3.wasm',
+  'sqflite_sw.js',
+  'icons/Icon-192.png',
+  'icons/Icon-512.png',
+  'icons/Icon-maskable-192.png',
+  'icons/Icon-maskable-512.png',
+];
+
+self.addEventListener('install', (event) => {
   self.skipWaiting();
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      await Promise.all(
+        PRECACHE_URLS.map(async (url) => {
+          try {
+            const response = await fetch(url, { cache: 'no-store' });
+            if (response && response.ok) {
+              await cache.put(url, response);
+            }
+          } catch (err) {
+            // No pasa nada si uno solo falla (por ejemplo, sin
+            // conexión durante la propia instalación): el resto se
+            // sigue guardando y el service worker se instala igual.
+          }
+        })
+      );
+    })()
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Limpia cachés de versiones anteriores de este mismo service
+      // worker (por ejemplo "alventus-offline-v1"), para no dejar
+      // copias viejas acumulándose sin usarse.
+      const names = await caches.keys();
+      await Promise.all(
+        names
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      );
+      await self.clients.claim();
+    })()
+  );
 });
 
 self.addEventListener('fetch', (event) => {
