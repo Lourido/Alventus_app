@@ -1,4 +1,4 @@
-/// Historial de cambios de cara al usuario ("qué hay de nuevo"), para
+﻿/// Historial de cambios de cara al usuario ("qué hay de nuevo"), para
 /// mostrarse en un aviso la primera vez que se abre la app tras un
 /// despliegue que incluya alguna entrada nueva.
 ///
@@ -67,6 +67,16 @@ const List<ChangelogEntry> kChangelog = [
       'El email de "sugerencias" de la pantalla de inicio se ve ahora más destacado.',
       'Arreglado el orden de las etapas cuando se reordenan directamente en Odoo.',
       'Al mover una etapa arriba o abajo, su descripción se mueve ahora junto con las tareas.',
+    ],
+  ),
+  ChangelogEntry(
+    version: 5,
+    date: '13 de septiembre de 2026',
+    changes: [
+      'El aviso de "Novedades" ya no se cierra solo: hay que pulsar "Entendido" para cerrarlo.',
+      'En Android, el icono de la app ya es el de Alventus (antes salía el icono genérico).',
+      'Si te quedas sin cobertura mientras tienes la app abierta, puedes seguir usándola con los datos guardados en el teléfono.',
+      'El aviso de "sin conexión" ahora deja claro que no hay conexión, en vez de decir que sí la hay.',
     ],
   ),
 ];
