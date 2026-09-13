@@ -50,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (result['success'] == true) {
-      print('🔍 _login: Login exitoso, guardando credenciales...');
+      print('🔍 _login: Lo has hecho muy bien ... guardando credenciales...');
 
       final storageService = StorageService();
 

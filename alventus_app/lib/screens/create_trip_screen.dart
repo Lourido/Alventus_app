@@ -78,7 +78,7 @@ class CreateTripScreen extends StatelessWidget {
                       title: const Text('Próximamente'),
                       content: const Text(
                         'Todavía no implementado. Por favor, mándame un email '
-                        'para incluirlo en la próxima actualización de la app. '
+                        'si quieres que se incluya en la próxima actualización de la app. '
                         'Muchas gracias.',
                       ),
                       actions: [

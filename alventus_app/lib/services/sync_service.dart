@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -588,17 +588,36 @@ class SyncService {
 
   /// Sincroniza una actualización de tarea
   Future<bool> _syncUpdate(String model, int recordId, Map<String, dynamic> change) async {
-    if (model == 'project.task') {
-      final dataStr = change['data'] as String?;
-      if (dataStr == null) return false;
+    final dataStr = change['data'] as String?;
+    if (dataStr == null) return false;
 
-      try {
-        final data = jsonDecode(dataStr) as Map<String, dynamic>;
+    try {
+      final data = jsonDecode(dataStr) as Map<String, dynamic>;
+
+      if (model == 'project.task') {
+        // Un cambio de etapa (encolado al mover una etapa sin conexión,
+        // ver stages_screen.dart) se guarda aparte de los cambios de
+        // nombre/descripción, con solo el campo "stage_id" -- así que
+        // se distingue mirando qué trae el propio cambio.
+        if (data.containsKey('stage_id')) {
+          final newStageId = data['stage_id'] is int
+              ? data['stage_id'] as int
+              : int.tryParse(data['stage_id'].toString());
+          if (newStageId == null) return false;
+
+          print('🔄 _syncUpdate: Reasignando tarea $recordId a la etapa $newStageId');
+          final result = await _odooService.reassignTasksStage(
+            taskIds: [recordId],
+            newStageId: newStageId,
+          );
+          print('🔄 _syncUpdate: Resultado = ${result['success']}');
+          return result['success'] == true;
+        }
 
         print('🔄 _syncUpdate: Actualizando tarea $recordId');
         print('🔄 _syncUpdate: name="${data["name"]}", description="${data["description"]}"');
 
-          final result = await _odooService.updateTask(
+        final result = await _odooService.updateTask(
           taskId: recordId,
           name: data['name']?.toString(),
           description: data['description']?.toString(),
@@ -606,12 +625,25 @@ class SyncService {
 
         print('🔄 _syncUpdate: Resultado = ${result['success']}');
         return result['success'] == true;
-      } catch (e) {
-        print('❌ Error en _syncUpdate: $e');
-        return false;
       }
+
+      if (model == 'project.task.type') {
+        // Cambio de descripción de etapa (editor directo, o el
+        // intercambio de descripción al mover una etapa sin conexión).
+        print('🔄 _syncUpdate: Actualizando descripción de la etapa $recordId');
+        final result = await _odooService.updateStageDescription(
+          stageId: recordId,
+          description: data['description']?.toString() ?? '',
+        );
+        print('🔄 _syncUpdate: Resultado = ${result['success']}');
+        return result['success'] == true;
+      }
+
+      return false;
+    } catch (e) {
+      print('❌ Error en _syncUpdate: $e');
+      return false;
     }
-    return false;
   }
 
   /// Sincroniza un borrado de tarea

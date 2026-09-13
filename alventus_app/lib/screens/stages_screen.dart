@@ -345,25 +345,62 @@ class _StagesScreenState extends State<StagesScreen> {
     if (newDescription == null) return; // cancelado
     if (newDescription == (stage.description ?? '')) return; // sin cambios
 
-    if (!await _requireConnection()) return;
+    final hasConnection = await _syncService.checkConnectivity();
 
-    final result = await _odooService.updateStageDescription(
-      stageId: stage.stageId!,
-      description: newDescription,
+    if (hasConnection) {
+      final result = await _odooService.updateStageDescription(
+        stageId: stage.stageId!,
+        description: newDescription,
+      );
+
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        await _loadStages();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['error']?.toString() ?? 'No se pudo guardar la descripción'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Sin conexión: se encola para sincronizar luego y se refleja ya en
+    // pantalla (no se puede recargar de Odoo estando offline).
+    await _localDb.addPendingChange(
+      model: 'project.task.type',
+      action: 'update',
+      recordId: stage.stageId!,
+      data: {'description': newDescription},
     );
 
     if (!mounted) return;
 
-    if (result['success'] == true) {
-      await _loadStages();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['error']?.toString() ?? 'No se pudo guardar la descripción'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
+    setState(() {
+      _stages = _stages.map((s) {
+        if (s.stageId != stage.stageId) return s;
+        return _StageGroup(
+          stageId: s.stageId,
+          stageName: s.stageName,
+          taskCount: s.taskCount,
+          taskIds: s.taskIds,
+          sortDate: s.sortDate,
+          dateLabel: s.dateLabel,
+          description: newDescription,
+          sequence: s.sequence,
+        );
+      }).toList();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Sin conexión: la descripción se ha guardado en tu teléfono y se sincronizará con Odoo cuando vuelvas a tener cobertura.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -392,7 +429,12 @@ class _StagesScreenState extends State<StagesScreen> {
       }
     }
 
-    if (!await _requireConnection()) return;
+    // A diferencia de otras acciones de esta pantalla, mover una etapa NO
+    // se bloquea sin conexión: si no hay red, se guarda ya en el teléfono
+    // (tareas + descripciones) y se encola para sincronizar con Odoo en
+    // cuanto vuelva la cobertura -- igual que ya se hace en la edición de
+    // tareas (ver sync_service.dart).
+    final hasConnection = await _syncService.checkConnectivity();
 
     setState(() => _isLoading = true);
 
@@ -407,35 +449,111 @@ class _StagesScreenState extends State<StagesScreen> {
     var current = oldIndex;
     bool allOk = true;
 
+    // Copia mutable de _stages que se va actualizando paso a paso, para
+    // poder reflejarla directamente en pantalla cuando no hay conexión
+    // (sin pasar por _loadStages(), que sin conexión reconstruiría los
+    // grupos desde cero solo con las tareas locales y perdería el
+    // resultado que se acaba de aplicar aquí).
+    final updatedStages = List<_StageGroup>.from(_stages);
+
     while (current != newIndex) {
       final next = current + step;
       final displacedIds = List<int>.from(_stages[next].taskIds);
       final displacedDescription = _stages[next].description ?? '';
 
-      final resultMove = await _odooService.reassignTasksStage(
-        taskIds: movingIds,
-        newStageId: _stages[next].stageId!,
-      );
-      final resultDisplace = await _odooService.reassignTasksStage(
-        taskIds: displacedIds,
-        newStageId: _stages[current].stageId!,
-      );
-      final resultDescMove = await _odooService.updateStageDescription(
-        stageId: _stages[next].stageId!,
-        description: movingDescription,
-      );
-      final resultDescDisplace = await _odooService.updateStageDescription(
-        stageId: _stages[current].stageId!,
-        description: displacedDescription,
-      );
-      if (resultMove['success'] != true ||
-          resultDisplace['success'] != true ||
-          resultDescMove['success'] != true ||
-          resultDescDisplace['success'] != true) {
-        allOk = false;
+      if (hasConnection) {
+        final resultMove = await _odooService.reassignTasksStage(
+          taskIds: movingIds,
+          newStageId: _stages[next].stageId!,
+        );
+        final resultDisplace = await _odooService.reassignTasksStage(
+          taskIds: displacedIds,
+          newStageId: _stages[current].stageId!,
+        );
+        final resultDescMove = await _odooService.updateStageDescription(
+          stageId: _stages[next].stageId!,
+          description: movingDescription,
+        );
+        final resultDescDisplace = await _odooService.updateStageDescription(
+          stageId: _stages[current].stageId!,
+          description: displacedDescription,
+        );
+        if (resultMove['success'] != true ||
+            resultDisplace['success'] != true ||
+            resultDescMove['success'] != true ||
+            resultDescDisplace['success'] != true) {
+          allOk = false;
+        }
+      } else {
+        for (final id in movingIds) {
+          await _localDb.updateTask(id, {'stage_name': _stages[next].stageName});
+          await _localDb.addPendingChange(
+            model: 'project.task',
+            action: 'update',
+            recordId: id,
+            data: {'stage_id': _stages[next].stageId},
+          );
+        }
+        for (final id in displacedIds) {
+          await _localDb.updateTask(id, {'stage_name': _stages[current].stageName});
+          await _localDb.addPendingChange(
+            model: 'project.task',
+            action: 'update',
+            recordId: id,
+            data: {'stage_id': _stages[current].stageId},
+          );
+        }
+        await _localDb.addPendingChange(
+          model: 'project.task.type',
+          action: 'update',
+          recordId: _stages[next].stageId,
+          data: {'description': movingDescription},
+        );
+        await _localDb.addPendingChange(
+          model: 'project.task.type',
+          action: 'update',
+          recordId: _stages[current].stageId,
+          data: {'description': displacedDescription},
+        );
       }
 
+      updatedStages[next] = _StageGroup(
+        stageId: _stages[next].stageId,
+        stageName: _stages[next].stageName,
+        taskCount: movingIds.length,
+        taskIds: movingIds,
+        sortDate: _stages[next].sortDate,
+        dateLabel: _stages[next].dateLabel,
+        description: movingDescription,
+        sequence: _stages[next].sequence,
+      );
+      updatedStages[current] = _StageGroup(
+        stageId: _stages[current].stageId,
+        stageName: _stages[current].stageName,
+        taskCount: displacedIds.length,
+        taskIds: displacedIds,
+        sortDate: _stages[current].sortDate,
+        dateLabel: _stages[current].dateLabel,
+        description: displacedDescription,
+        sequence: _stages[current].sequence,
+      );
+
       current = next;
+    }
+
+    if (!hasConnection) {
+      if (!mounted) return;
+      setState(() {
+        _stages = updatedStages;
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sin conexión: el movimiento se ha guardado en tu teléfono y se sincronizará con Odoo cuando vuelvas a tener cobertura.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
 
     await _syncService.syncTasks(widget.project.id);
@@ -718,17 +836,8 @@ class _StagesScreenState extends State<StagesScreen> {
               return _buildStageCard(
                 index,
                 trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_up),
-                      tooltip: 'Subir',
-                      style: IconButton.styleFrom(
-                        shape: const CircleBorder(),
-                        side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.2),
-                      ),
-                      onPressed: index == 0 ? null : () => _moveStageContent(index, index - 1),
-                    ),
                     IconButton(
                       icon: const Icon(Icons.keyboard_arrow_down),
                       tooltip: 'Bajar',
@@ -742,6 +851,15 @@ class _StagesScreenState extends State<StagesScreen> {
                       icon: const Icon(Icons.delete_outline, color: Colors.red),
                       tooltip: 'Borrar etapa',
                       onPressed: () => _confirmDeleteStage(stage),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_up),
+                      tooltip: 'Subir',
+                      style: IconButton.styleFrom(
+                        shape: const CircleBorder(),
+                        side: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.2),
+                      ),
+                      onPressed: index == 0 ? null : () => _moveStageContent(index, index - 1),
                     ),
                   ],
                 ),
@@ -797,58 +915,99 @@ class _StagesScreenState extends State<StagesScreen> {
   /// en la app nativa es el icono de arrastrar + borrar.
   Widget _buildStageCard(int index, {required Widget trailing, Key? key}) {
     final stage = _stages[index];
+    // Primera línea: nombre de la etapa, y su fecha entre paréntesis
+    // cuando se conoce (viene de la fecha más temprana entre sus
+    // tareas, o del propio nombre si va numerado con fecha).
+    final title = stage.dateLabel != null
+        ? '${stage.stageName} (Día ${stage.dateLabel})'
+        : stage.stageName;
+
+    void openStageTasks() {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => StageTasksScreen(
+            project: widget.project,
+            stageName: stage.stageName,
+            stageDescription: stage.description,
+          ),
+        ),
+      ).then((_) {
+        // Añadir/borrar tareas cambia el contador de tareas de la etapa
+        // que se ve en esta lista: al volver, se recarga para que se
+        // actualice.
+        if (mounted) _loadStages();
+      });
+    }
+
     return Card(
       key: key,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: ListTile(
-        leading: const CircleAvatar(child: Icon(Icons.event)),
-        title: Text(stage.stageName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        // La descripción se ve y se puede editar siempre (tenga
-        // texto o no), tocando esta zona en concreto -- el resto
-        // del Card sigue abriendo las tareas de la etapa al tocarlo.
-        subtitle: stage.stageId == null
-            ? null
-            : InkWell(
-                onTap: () => _editStageDescription(stage),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          (stage.description != null && stage.description!.isNotEmpty)
-                              ? stage.description!
-                              : 'Sin descripción · toca para añadir',
-                          style: (stage.description != null && stage.description!.isNotEmpty)
-                              ? const TextStyle(fontSize: 16)
-                              : TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic, fontSize: 16),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.edit, size: 16, color: Colors.grey[500]),
-                    ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Línea 1: nombre de la etapa (Día dd/mm/yyyy). Tocar aquí
+          // (o la línea 2) abre las tareas de la etapa.
+          InkWell(
+            onTap: openStageTasks,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                children: [
+                  const CircleAvatar(child: Icon(Icons.event)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
                   ),
-                ),
-              ),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => StageTasksScreen(
-                project: widget.project,
-                stageName: stage.stageName,
-                stageDescription: stage.description,
+                ],
               ),
             ),
-          ).then((_) {
-            // Añadir/borrar tareas cambia el contador de tareas de
-            // la etapa que se ve en esta lista: al volver, se
-            // recarga para que se actualice.
-            if (mounted) _loadStages();
-          });
-        },
-        trailing: trailing,
+          ),
+          // Línea 2: descripción de la etapa. Se ve y se puede editar
+          // siempre (tenga texto o no), tocando esta zona en concreto.
+          if (stage.stageId != null)
+            InkWell(
+              onTap: () => _editStageDescription(stage),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        (stage.description != null && stage.description!.isNotEmpty)
+                            ? stage.description!
+                            : 'Sin descripción · toca para añadir',
+                        style: (stage.description != null && stage.description!.isNotEmpty)
+                            ? const TextStyle(fontSize: 16)
+                            : TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic, fontSize: 16),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.edit, size: 16, color: Colors.grey[500]),
+                  ],
+                ),
+              ),
+            )
+          else
+            InkWell(
+              onTap: openStageTasks,
+              child: const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: SizedBox(height: 4),
+              ),
+            ),
+          const Divider(height: 1),
+          // Línea 3: los botones de la etapa (bajar / borrar / subir en
+          // la variante web, o borrar + arrastrar en la app nativa).
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: trailing,
+          ),
+        ],
       ),
     );
   }

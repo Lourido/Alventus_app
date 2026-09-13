@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import '../main.dart';
 import '../services/odoo_service.dart';
@@ -61,27 +61,6 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _checkSession() async {
     print('🔍 _checkSession: Iniciando...');
 
-    // Comprueba en segundo plano (a) si hay una versión nueva de la app
-    // para descargar (solo tiene efecto en Android) y (b) si hay
-    // novedades sin ver desde la última vez que se abrió (todas las
-    // plataformas). No se espera a que termine, para no retrasar el
-    // arranque: los avisos aparecen sobre lo que sea que haya en
-    // pantalla en ese momento (login u home), gracias al navigator
-    // global.
-    unawaited(Future(() async {
-      await Future.delayed(const Duration(seconds: 2));
-      final ctx = rootNavigatorKey.currentContext;
-      if (ctx != null) {
-        await checkAndPromptUpdate(ctx);
-      }
-      // Se comprueba después del aviso de actualización (si lo hay) y
-      // no antes, para no mostrar dos diálogos encima uno del otro.
-      final ctx2 = rootNavigatorKey.currentContext;
-      if (ctx2 != null) {
-        await checkAndShowChangelog(ctx2);
-      }
-    }));
-
     // Mostrar el logo durante 3 segundos para que se vea bien
     await Future.delayed(const Duration(seconds: 3));
 
@@ -111,6 +90,7 @@ class _SplashScreenState extends State<SplashScreen>
                 userName: result['username'] as String? ?? 'Usuario',),
           ),
         );
+        _scheduleAppNotices();
         SyncService().fullSync();
       } else {
         print('🔍 _checkSession: Navegando a LoginScreen');
@@ -120,6 +100,7 @@ class _SplashScreenState extends State<SplashScreen>
             builder: (context) => const LoginScreen(),
           ),
         );
+        _scheduleAppNotices();
       }
     } else {
       print('🔍 _checkSession: No hay conexión, verificando credenciales locales...');
@@ -147,6 +128,7 @@ class _SplashScreenState extends State<SplashScreen>
             ),
           ),
         );
+        _scheduleAppNotices();
       } else {
         print('🔍 _checkSession: No hay credenciales guardadas, yendo a LoginScreen');
         Navigator.pushReplacement(
@@ -155,8 +137,46 @@ class _SplashScreenState extends State<SplashScreen>
             builder: (context) => const LoginScreen(),
           ),
         );
+        _scheduleAppNotices();
       }
     }
+  }
+
+  /// Comprueba (a) si hay una versión nueva de la app para descargar
+  /// (solo tiene efecto en Android) y (b) si hay novedades sin ver desde
+  /// la última vez que se abrió (todas las plataformas), y las muestra
+  /// encima de lo que haya en pantalla en ese momento.
+  ///
+  /// Importante: se llama SIEMPRE después de que el propio
+  /// Navigator.pushReplacement hacia HomeScreen/LoginScreen ya se haya
+  /// hecho, nunca antes ni en paralelo con un timer independiente. Si se
+  /// llamara antes (como hacía este método en una versión anterior, con
+  /// su propio delay de 2 segundos corriendo a la vez que este método
+  /// esperaba 3 segundos para navegar), el diálogo de Novedades podía
+  /// quedar como la ruta más alta de la pila justo cuando el
+  /// Navigator.pushReplacement de más abajo se disparaba -- y
+  /// pushReplacement sustituye la ruta que esté arriba del todo en ese
+  /// momento, no necesariamente la de la propia SplashScreen. Resultado
+  /// real observado: el aviso de Novedades se cerraba solo al cabo de
+  /// aproximadamente un segundo, sin que el usuario lo hubiera cerrado
+  /// ni tocado nada. Llamando a esto después de navegar, ya no hay
+  /// ningún pushReplacement pendiente que pueda "tragarse" el diálogo.
+  void _scheduleAppNotices() {
+    unawaited(Future(() async {
+      // Pequeña espera para que la pantalla de destino (login u home) ya
+      // esté totalmente montada antes de mostrar cualquier aviso encima.
+      await Future.delayed(const Duration(milliseconds: 400));
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx != null) {
+        await checkAndPromptUpdate(ctx);
+      }
+      // Se comprueba después del aviso de actualización (si lo hay) y
+      // no antes, para no mostrar dos diálogos encima uno del otro.
+      final ctx2 = rootNavigatorKey.currentContext;
+      if (ctx2 != null) {
+        await checkAndShowChangelog(ctx2);
+      }
+    }));
   }
 
   @override
