@@ -145,7 +145,7 @@ class _StagesScreenState extends State<StagesScreen> {
       if (!mounted) return;
       setState(() {
         _isOffline = true;
-        _stages = _buildGroupsOffline(cached, rows);
+        _stages = _mergeWithCurrent(_buildGroupsOffline(cached, rows));
         _isLoading = false;
       });
       return;
@@ -168,7 +168,7 @@ class _StagesScreenState extends State<StagesScreen> {
       if (!mounted) return;
       setState(() {
         _isOffline = true;
-        _stages = _buildGroupsOffline(cached, rows);
+        _stages = _mergeWithCurrent(_buildGroupsOffline(cached, rows));
         _isLoading = false;
       });
       _warnSyncFailed();
@@ -222,18 +222,24 @@ class _StagesScreenState extends State<StagesScreen> {
 
     // Se guardan en el teléfono para poder seguir viéndolas (y
     // moviéndolas/editándolas) cuando no haya conexión.
-    await _localDb.saveStages(
-      widget.project.id,
-      stageGroups
-          .where((g) => g.stageId != null)
-          .map((g) => {
-                'id': g.stageId,
-                'name': g.stageName,
-                'description': g.description,
-                'sequence': g.sequence ?? 0,
-              })
-          .toList(),
-    );
+    try {
+      await _localDb.saveStages(
+        widget.project.id,
+        stageGroups
+            .where((g) => g.stageId != null)
+            .map((g) => {
+                  'id': g.stageId,
+                  'name': g.stageName,
+                  'description': g.description,
+                  'sequence': g.sequence ?? 0,
+                })
+            .toList(),
+      );
+    } catch (e) {
+      // Que no se puedan guardar las etapas no debe impedir verlas: sin
+      // este try, un fallo aquí dejaba la pantalla cargando para siempre.
+      print('⚠️ No se pudieron guardar las etapas en el teléfono: $e');
+    }
 
     if (!mounted) return;
 
@@ -310,7 +316,7 @@ class _StagesScreenState extends State<StagesScreen> {
           ? '${minDate.day.toString().padLeft(2, '0')}/${minDate.month.toString().padLeft(2, '0')}/${minDate.year}'
           : null;
       groups.add(_StageGroup(
-        stageId: null,
+        stageId: entry.key == 'Sin etapa' ? null : _stageIdFromTasks(tasks),
         stageName: entry.key,
         taskCount: tasks.length,
         taskIds: tasks.map((t) => t['id'] as int).toList(),
@@ -321,6 +327,49 @@ class _StagesScreenState extends State<StagesScreen> {
 
     _sortStages(groups);
     return groups;
+  }
+
+  /// Completa los grupos recién armados con lo que ya hubiera en
+  /// pantalla: si al perder la cobertura un grupo se queda sin id o sin
+  /// descripción, pero esa misma etapa ya se estaba viendo con ellos, se
+  /// conservan. Así una recarga sin cobertura nunca deja la pantalla peor
+  /// de lo que ya estaba.
+  List<_StageGroup> _mergeWithCurrent(List<_StageGroup> groups) {
+    if (_stages.isEmpty) return groups;
+
+    final previous = {for (final s in _stages) s.stageName: s};
+
+    return groups.map((g) {
+      final old = previous[g.stageName];
+      if (old == null) return g;
+      if (g.stageId != null && g.description != null) return g;
+
+      return _StageGroup(
+        stageId: g.stageId ?? old.stageId,
+        stageName: g.stageName,
+        taskCount: g.taskCount,
+        taskIds: g.taskIds,
+        sortDate: g.sortDate ?? old.sortDate,
+        dateLabel: g.dateLabel ?? old.dateLabel,
+        description: g.description ?? old.description,
+        sequence: g.sequence ?? old.sequence,
+      );
+    }).toList();
+  }
+
+  /// Saca el id de etapa a partir de las tareas de esa etapa: cada tarea
+  /// guarda el id de su etapa en Odoo (columna stage_id), así que sin
+  /// cobertura se puede recuperar de ahí.
+  int? _stageIdFromTasks(List<Map<String, dynamic>> tasks) {
+    for (final t in tasks) {
+      final id = t['stage_id'];
+      if (id is int) return id;
+      if (id != null) {
+        final parsed = int.tryParse(id.toString());
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
   }
 
   /// Respaldo para el modo offline: agrupa solo a partir de las tareas
@@ -336,7 +385,7 @@ class _StagesScreenState extends State<StagesScreen> {
           : null;
 
       return _StageGroup(
-        stageId: null, // no resoluble sin conexión
+        stageId: entry.key == 'Sin etapa' ? null : _stageIdFromTasks(tasks),
         stageName: entry.key,
         taskCount: tasks.length,
         taskIds: tasks.map((t) => t['id'] as int).toList(),
@@ -508,7 +557,7 @@ class _StagesScreenState extends State<StagesScreen> {
       if (_stages[i].stageId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('No se pueden mover tareas sin etapa asignada'),
+            content: Text('Sin cobertura no consigo identificar esta etapa. Abre este viaje una vez con cobertura y vuelve a intentarlo.'),
             backgroundColor: Colors.orange,
           ),
         );

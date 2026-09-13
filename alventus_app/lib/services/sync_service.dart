@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'odoo_service.dart';
 import 'local_database_service.dart';
+import '../utils/html_text.dart';
 import '../utils/web_connectivity.dart';
 
 class SyncService {
@@ -319,6 +320,12 @@ class SyncService {
           'project_id': projectId,
           'stage_name':
           stageId is List && stageId.length > 1 ? stageId[1].toString() : null,
+          // Odoo manda la etapa como [id, nombre]; hasta ahora se
+          // aprovechaba solo el nombre y se tiraba el id, que es
+          // justo lo que hace falta para poder editar y mover etapas
+          // sin cobertura.
+          'stage_id':
+          stageId is List && stageId.isNotEmpty ? stageId[0] : null,
           'deadline': json['date_deadline']?.toString(),
           'priority': json['priority']?.toString() ?? '0',
           'fecha_desde': json['fecha_desde']?.toString(),
@@ -329,6 +336,36 @@ class SyncService {
 
       await _localDb.saveTasks(tasksToSave, projectId: projectId);
       print('✅ ${tasksToSave.length} tareas sincronizadas para el proyecto $projectId');
+
+      // Se aprovecha para guardar también las etapas del viaje (nombre,
+      // descripción y orden). Así, cuando se pierda la cobertura, la
+      // pantalla de etapas ya tiene todo lo que necesita aunque no se
+      // haya entrado nunca en ella con conexión. Si falla, no pasa nada:
+      // la sincronización de tareas, que es lo importante aquí, ya está
+      // hecha.
+      try {
+        final stagesResult = await _odooService.fetchProjectStages(projectId);
+        if (stagesResult['success'] == true) {
+          final stages = (stagesResult['result'] as List<dynamic>)
+              .cast<Map<String, dynamic>>()
+              .map((s) {
+                final rawDescription = s['description'];
+                return {
+                  'id': s['id'],
+                  'name': s['name']?.toString() ?? '',
+                  'description':
+                      rawDescription is String ? stripHtmlToPlainText(rawDescription) : null,
+                  'sequence': s['sequence'] as int? ?? 0,
+                };
+              })
+              .toList();
+          await _localDb.saveStages(projectId, stages);
+          print('✅ ${stages.length} etapas guardadas en el teléfono');
+        }
+      } catch (e) {
+        print('⚠️ No se pudieron guardar las etapas en el teléfono: $e');
+      }
+
       return true;
     } else {
       print('❌ Error al sincronizar tareas: ${result['error']}');

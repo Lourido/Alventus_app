@@ -242,6 +242,18 @@ class _MicTextFieldState extends State<MicTextField> {
 
     if (started && mounted) {
       setState(() => _isListening = true);
+      // Recordatorio de que el micrófono se queda escuchando hasta que se
+      // vuelve a pulsar. El dictado del iPhone ya avisaba de esto por su
+      // cuenta; por este camino (Android, y iOS nativo) no avisaba nadie.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Habla ahora. Cuando termines, vuelve a pulsar el micrófono '
+            'para que deje de escuchar.',
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
       _noResultsTimer?.cancel();
       _noResultsTimer = Timer(const Duration(seconds: 6), _handleNoResultsTimeout);
     } else if (mounted) {
@@ -283,12 +295,15 @@ class _MicTextFieldState extends State<MicTextField> {
       SnackBar(
         content: Text(
           reason == null || reason.isEmpty
-              ? 'El dictado por voz no ha reconocido nada. Comprueba que '
-                  'el micrófono tenga permiso y que el teléfono tenga '
-                  'instalado el dictado en español; también puedes '
-                  'escribir el texto a mano.'
-              : 'El dictado por voz no ha reconocido nada ($reason). '
-                  'Puedes escribir el texto a mano.',
+              ? 'El dictado por voz no ha reconocido nada. En Android el '
+                  'dictado necesita cobertura, salvo que descargues el '
+                  'idioma para usarlo sin conexión (Ajustes del teléfono, '
+                  'Google, Voz, Reconocimiento de voz sin conexión). '
+                  'Mientras tanto puedes escribir el texto a mano.'
+              : 'El dictado por voz no ha reconocido nada ($reason). En '
+                  'Android suele ser por no tener cobertura: el dictado la '
+                  'necesita salvo que descargues el idioma para usarlo sin '
+                  'conexión. Puedes escribir el texto a mano.',
         ),
         duration: const Duration(seconds: 6),
       ),

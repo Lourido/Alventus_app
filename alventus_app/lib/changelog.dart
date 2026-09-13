@@ -107,4 +107,14 @@ const List<ChangelogEntry> kChangelog = [
       'Lo que de verdad necesita cobertura (borrar o añadir una etapa, compartir o duplicar un viaje, adjuntar archivos) lo dice ahora con un mensaje claro en vez de dar un error.',
     ],
   ),
+  ChangelogEntry(
+    version: 9,
+    date: '13 de septiembre de 2026 (noche, 2)',
+    changes: [
+      'Ahora la app guarda en el teléfono a qué etapa pertenece cada tarea. Sin ese dato, al quedarse sin cobertura las etapas perdían su identidad y no se podía editar ni mover nada; era la razón de fondo de que sin cobertura no funcionara casi nada.',
+      'Las etapas del viaje (con su descripción y su orden) se guardan ya al entrar en el viaje, no solo al abrir la pantalla de etapas, así que sirven aunque nunca hayas entrado en ella con cobertura.',
+      'Al pulsar el micrófono, la app avisa de que hay que volver a pulsarlo para que deje de escuchar.',
+      'Si el dictado no reconoce nada, se explica que en Android necesita cobertura salvo que descargues el idioma para usarlo sin conexión.',
+    ],
+  ),
 ];

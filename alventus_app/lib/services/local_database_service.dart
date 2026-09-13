@@ -35,7 +35,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -66,6 +66,7 @@ class LocalDatabaseService {
         description TEXT,
         project_id INTEGER NOT NULL,
         stage_name TEXT,
+        stage_id INTEGER,
         deadline TEXT,
         priority TEXT DEFAULT '0',
         fecha_desde TEXT,
@@ -334,6 +335,15 @@ class LocalDatabaseService {
       }
     }
 
+    if (oldVersion < 10) {
+      try {
+        await db.execute('ALTER TABLE tasks ADD COLUMN stage_id INTEGER');
+        print('✅ Columna stage_id añadida a tasks');
+      } catch (e) {
+        print('⚠️ No se pudo añadir stage_id (puede que ya exista): $e');
+      }
+    }
+
     if (oldVersion < 9) {
       try {
         await db.execute('''
@@ -457,6 +467,13 @@ class LocalDatabaseService {
           'description': stripHtmlToPlainText(task['description'] as String?),
           'project_id': task['project_id'],
           'stage_name': task['stage_name'],
+          // El id real de la etapa en Odoo. Se guarda para que, sin
+          // cobertura, la app siga sabiendo a qué etapa pertenece cada
+          // tarea y pueda dejar editarlas y moverlas: antes solo se
+          // guardaba el NOMBRE de la etapa, así que al quedarse sin
+          // conexión las etapas perdían su identidad y no se dejaba
+          // tocar nada.
+          'stage_id': task['stage_id'],
           'deadline': task['deadline'],
           'priority': task['priority'] ?? '0',
           'fecha_desde': task['fecha_desde'],
