@@ -124,7 +124,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       _isSaving = true;
     });
 
-    final hasConnection = await _syncService.hasRealNetwork();
+    // Puede cambiar sobre la marcha: si al intentar guardar se ve que no
+    // se llega al servidor, se guarda en el teléfono. Hace falta mirarlo
+    // así porque en el iPhone el navegador dice que hay conexión aunque
+    // el teléfono esté en modo avión.
+    var hasConnection = await _syncService.hasRealNetwork();
 
     if (!mounted) return;
 
@@ -168,6 +172,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             backgroundColor: Colors.green,
           ),
         );
+      } else if (result['offline'] == true) {
+        // No se ha podido llegar al servidor: se guarda en el teléfono,
+        // como si no hubiera habido conexión desde el principio.
+        hasConnection = false;
       } else {
         setState(() {
           _isSaving = false;
@@ -180,7 +188,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           ),
         );
       }
-    } else {
+    }
+
+    if (!hasConnection) {
       // No hay conexión: guardar localmente y añadir a pendientes
       await _localDb.updateTask(_task.id, {
         'name': name,

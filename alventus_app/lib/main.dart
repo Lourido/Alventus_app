@@ -4,10 +4,25 @@ import 'screens/splash_screen.dart';
 import 'services/sync_service.dart';
 
 void main() {
-  // Inicializar el servicio de sincronización
-  SyncService().init();
+  // Hay que inicializar el "puente" con Android/iOS ANTES de usar nada
+  // que hable con el sistema (la base de datos local y el detector de
+  // conexión lo hacen). Sin esto, esas llamadas fallan en el arranque
+  // con "defaultBinaryMessenger was accessed before the binding was
+  // initialized"; y como pasaba antes de runApp, la app se quedaba sin
+  // pintar nada: pantalla en blanco y sin más explicación.
+  WidgetsFlutterBinding.ensureInitialized();
 
+  // Primero se pinta la app y después se arranca la sincronización, y
+  // además protegida: pase lo que pase al inicializarla, la pantalla
+  // tiene que salir igualmente. Es preferible entrar en la app con la
+  // sincronización renqueando que no poder entrar.
   runApp(const MyApp());
+
+  try {
+    SyncService().init();
+  } catch (e) {
+    print('⚠️ No se pudo inicializar la sincronización: $e');
+  }
 }
 
 /// Navigator global: permite mostrar el diálogo de "hay una versión

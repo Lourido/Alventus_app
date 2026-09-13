@@ -439,33 +439,55 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     });
 
     if (!hasConnection) {
-      // Sin conexión: se guarda el nuevo orden en el teléfono y se
-      // encola para mandarlo a Odoo cuando vuelva la cobertura.
-      for (var i = 0; i < reordered.length; i++) {
-        final taskId = reordered[i]['id'] as int;
-        await _localDb.updateTask(taskId, {'sequence': i * 10});
-        await _localDb.addPendingChange(
-          model: 'project.task',
-          action: 'update',
-          recordId: taskId,
-          data: {'sequence': i * 10},
-        );
-      }
-
+      await _saveTaskOrderOffline(reordered);
       if (!mounted) return;
       setState(() => _isLoading = false);
       _warnSavedOffline();
       return;
     }
 
+    // Aunque pareciera que sí había conexión, puede que no se llegue al
+    // servidor (en el iPhone el navegador dice que la hay estando en
+    // modo avión). Si pasa, se guarda el orden en el teléfono.
+    var lostConnection = false;
     for (var i = 0; i < reordered.length; i++) {
-      await _odooService.updateTaskSequence(taskId: reordered[i]['id'] as int, sequence: i * 10);
+      final result = await _odooService.updateTaskSequence(
+        taskId: reordered[i]['id'] as int,
+        sequence: i * 10,
+      );
+      if (result['offline'] == true) {
+        lostConnection = true;
+        break;
+      }
+    }
+
+    if (lostConnection) {
+      await _saveTaskOrderOffline(reordered);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _warnSavedOffline();
+      return;
     }
 
     await _syncService.syncTasks(widget.project.id);
 
     if (!mounted) return;
     await _loadTasks();
+  }
+
+  /// Guarda en el teléfono el nuevo orden de las tareas y lo encola para
+  /// mandarlo a Odoo cuando vuelva la cobertura.
+  Future<void> _saveTaskOrderOffline(List<Map<String, dynamic>> reordered) async {
+    for (var i = 0; i < reordered.length; i++) {
+      final taskId = reordered[i]['id'] as int;
+      await _localDb.updateTask(taskId, {'sequence': i * 10});
+      await _localDb.addPendingChange(
+        model: 'project.task',
+        action: 'update',
+        recordId: taskId,
+        data: {'sequence': i * 10},
+      );
+    }
   }
 
   /// Aviso único para cuando un cambio no se ha podido mandar a Odoo por
@@ -501,7 +523,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
               onPressed: () async {
                 Navigator.pop(dialogContext);
 
-                final hasConnection = await _syncService.hasRealNetwork();
+                var hasConnection = await _syncService.hasRealNetwork();
 
                 if (hasConnection) {
                   final result = await _odooService.deleteTask(task.id);
@@ -511,6 +533,10 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
                   if (result['success'] == true) {
                     await _localDb.deleteTask(task.id);
                     _loadTasks();
+                  } else if (result['offline'] == true) {
+                    // No se ha llegado al servidor: se borra en el
+                    // teléfono y se encola para borrarlo en Odoo luego.
+                    hasConnection = false;
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -519,7 +545,9 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
                       ),
                     );
                   }
-                } else {
+                }
+
+                if (!hasConnection) {
                   await _localDb.deleteTask(task.id);
                   await _localDb.addPendingChange(
                     model: 'project.task',
@@ -650,7 +678,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     final fechaDesde = _combineStageDateWithTime(timeFrom);
     final fechaHasta = _combineStageDateWithTime(timeTo);
 
-    final hasConnection = await _syncService.hasRealNetwork();
+    var hasConnection = await _syncService.hasRealNetwork();
 
     if (hasConnection) {
       final result = await _odooService.createTaskInStage(
@@ -669,6 +697,9 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
         await _syncService.syncTasks(widget.project.id);
         if (!mounted) return;
         _loadTasks();
+      } else if (result['offline'] == true) {
+        // No se ha llegado al servidor: se guarda en el teléfono.
+        hasConnection = false;
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -677,7 +708,9 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
           ),
         );
       }
-    } else {
+    }
+
+    if (!hasConnection) {
       // Sin conexión: se guarda localmente con el nombre de esta etapa
       // para que se vea ya en la lista, y se encola para sincronizar.
       final tempId = -DateTime.now().millisecondsSinceEpoch;
@@ -810,14 +843,33 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       await _syncService.syncTasks(widget.project.id);
       if (!mounted) return;
       _loadTasks();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['error']?.toString() ?? 'No se pudo cambiar la hora'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      return;
     }
+
+    if (result['offline'] == true) {
+      // No se ha llegado al servidor: se guarda la hora en el teléfono
+      // y se encola para mandarla cuando vuelva la cobertura.
+      final field = isFrom ? 'fecha_desde' : 'fecha_hasta';
+      await _localDb.updateTask(taskId, {field: newValue});
+      await _localDb.addPendingChange(
+        model: 'project.task',
+        action: 'update',
+        recordId: taskId,
+        data: {field: newValue},
+      );
+
+      if (!mounted) return;
+      _warnSavedOffline();
+      await _loadTasks();
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result['error']?.toString() ?? 'No se pudo cambiar la hora'),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 
   String _timeChipLabel(Map<String, dynamic> row, {required bool isFrom}) {

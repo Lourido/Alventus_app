@@ -492,15 +492,26 @@ class _StagesScreenState extends State<StagesScreen> {
 
       if (result['success'] == true) {
         await _loadStages();
-      } else {
+        return;
+      }
+
+      // Si el fallo NO es por falta de conexión (un error de Odoo de
+      // verdad), se avisa y no se toca nada más.
+      if (result['offline'] != true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['error']?.toString() ?? 'No se pudo guardar la descripción'),
             backgroundColor: Colors.red,
           ),
         );
+        return;
       }
-      return;
+
+      // Ha fallado porque no se ha podido llegar al servidor: se
+      // continúa abajo y se guarda en el teléfono, igual que si no
+      // hubiera habido conexión desde el principio. Esto es lo que hace
+      // que funcione en el iPhone, donde el navegador dice que sí hay
+      // conexión aunque el teléfono esté en modo avión.
     }
 
     // Sin conexión: se encola para sincronizar luego y se refleja ya en
@@ -570,7 +581,9 @@ class _StagesScreenState extends State<StagesScreen> {
     // (tareas + descripciones) y se encola para sincronizar con Odoo en
     // cuanto vuelva la cobertura -- igual que ya se hace en la edición de
     // tareas (ver sync_service.dart).
-    final hasConnection = await _syncService.hasRealNetwork();
+    // Puede cambiar sobre la marcha: si a mitad del movimiento se ve que
+    // no se llega al servidor, se pasa a guardar en el teléfono.
+    var hasConnection = await _syncService.hasRealNetwork();
 
     setState(() => _isLoading = true);
 
@@ -614,13 +627,25 @@ class _StagesScreenState extends State<StagesScreen> {
           stageId: _stages[current].stageId!,
           description: displacedDescription,
         );
-        if (resultMove['success'] != true ||
+        // ¿Ha fallado alguna por no poder llegar al servidor? Entonces
+        // no hay conexión de verdad, se pasa a modo sin conexión y este
+        // mismo paso se guarda ya en el teléfono (las anotaciones que se
+        // encolan fijan el valor final, así que no importa que alguna de
+        // las llamadas de arriba sí hubiera llegado a hacerse).
+        if (resultMove['offline'] == true ||
+            resultDisplace['offline'] == true ||
+            resultDescMove['offline'] == true ||
+            resultDescDisplace['offline'] == true) {
+          hasConnection = false;
+        } else if (resultMove['success'] != true ||
             resultDisplace['success'] != true ||
             resultDescMove['success'] != true ||
             resultDescDisplace['success'] != true) {
           allOk = false;
         }
-      } else {
+      }
+
+      if (!hasConnection) {
         for (final id in movingIds) {
           await _localDb.updateTask(id, {'stage_name': _stages[next].stageName});
           await _localDb.addPendingChange(

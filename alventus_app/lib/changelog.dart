@@ -117,4 +117,12 @@ const List<ChangelogEntry> kChangelog = [
       'Si el dictado no reconoce nada, se explica que en Android necesita cobertura salvo que descargues el idioma para usarlo sin conexión.',
     ],
   ),
+  ChangelogEntry(
+    version: 10,
+    date: '13 de septiembre de 2026 (final)',
+    changes: [
+      'Arreglada la pantalla en blanco al abrir la app en Android.',
+      'Y arreglado de raíz lo de guardar sin cobertura: en el iPhone, con la app instalada en la pantalla de inicio, el navegador dice que SÍ hay conexión aunque estés en modo avión, y por eso la app lo intentaba contra el servidor y daba error en rojo. Ahora ya no se fía de eso: si al guardar no consigue llegar al servidor, guarda el cambio en el teléfono y lo sube solo cuando vuelve la cobertura.',
+    ],
+  ),
 ];

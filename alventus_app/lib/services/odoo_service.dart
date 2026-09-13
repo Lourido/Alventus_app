@@ -105,6 +105,7 @@ class OdooService {
       return {
         'success': false,
         'error': errorMessage,
+        'offline': _isConnectionProblem(e),
       };
     } catch (e) {
       return {
@@ -317,6 +318,7 @@ class OdooService {
       return {
         'success': false,
         'error': 'Error de conexión: ${e.message}',
+        'offline': _isConnectionProblem(e),
       };
     } catch (e) {
       print('❌ executeKw - Excepción: $e');
@@ -325,6 +327,25 @@ class OdooService {
         'error': 'Error inesperado: $e',
       };
     }
+  }
+
+  /// Dice si un fallo de Dio es "no he podido llegar al servidor" (no hay
+  /// cobertura, no hay ruta, se agotó el tiempo de espera...) y no una
+  /// respuesta de error del propio Odoo.
+  ///
+  /// Esto es lo que permite distinguir "no se puede guardar" de "no hay
+  /// conexión ahora mismo", y es más de fiar que preguntar al sistema si
+  /// hay red: en el iPhone, con la app instalada en la pantalla de
+  /// inicio, el navegador sigue diciendo que SÍ hay conexión estando en
+  /// modo avión, así que la única forma segura de saberlo es intentarlo
+  /// de verdad y mirar cómo falla.
+  bool _isConnectionProblem(DioException e) {
+    if (e.response != null) return false; // el servidor contestó algo
+    return e.type == DioExceptionType.connectionError ||
+        e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.unknown;
   }
 
   /// Obtiene la lista de contactos/clientes

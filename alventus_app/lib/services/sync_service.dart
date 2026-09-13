@@ -28,8 +28,13 @@ class SyncService {
   /// Inicializa el servicio de sincronización
   void init() {
     // Limpia la papelera de elementos con más de un mes cada vez que
-    // arranca la app, sin que el usuario tenga que hacer nada.
-    _localDb.purgeOldTrashItems();
+    // arranca la app, sin que el usuario tenga que hacer nada. Si algo
+    // falla (por ejemplo, al abrir o migrar la base de datos local), se
+    // anota y se sigue: esto es una tarea de mantenimiento y nunca debe
+    // impedir que la app arranque.
+    _localDb.purgeOldTrashItems().catchError((e) {
+      print('⚠️ No se pudo limpiar la papelera: $e');
+    });
 
     _connectivitySubscription =
         _connectivity.onConnectivityChanged.listen((results) {
