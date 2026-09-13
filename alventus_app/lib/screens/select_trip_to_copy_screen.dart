@@ -47,7 +47,10 @@ class _SelectTripToCopyScreenState extends State<SelectTripToCopyScreen> {
     if (!mounted) return;
 
     setState(() {
-      _isOffline = !hasConnection;
+      // El aviso de cobertura se basa en si se ha llegado de verdad al
+      // servidor, no en lo que diga el sistema: en el iPhone dice que hay
+      // conexión aunque estés en modo avión.
+      _isOffline = !hasConnection || !OdooService.serverReachable;
       _projects = localProjects.map((row) {
         return Project(
           id: row['id'] as int,

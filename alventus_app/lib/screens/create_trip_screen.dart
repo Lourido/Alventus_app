@@ -1,9 +1,45 @@
 ﻿import 'package:flutter/material.dart';
+import '../services/odoo_service.dart';
 import 'select_trip_to_copy_screen.dart';
 import 'create_trip_form_screen.dart';
 
 class CreateTripScreen extends StatelessWidget {
   const CreateTripScreen({super.key});
+
+  /// Crear un viaje necesita servidor sí o sí, así que se comprueba aquí,
+  /// nada más elegir cómo crearlo, en vez de dejar que se rellene todo el
+  /// formulario para dar el aviso al final.
+  ///
+  /// Se comprueba hablando de verdad con el servidor (una consulta
+  /// mínima), no preguntando al sistema si hay conexión: en el iPhone eso
+  /// contesta que sí aunque estés en modo avión.
+  Future<void> _abrirSiHayCobertura(
+    BuildContext context,
+    Widget Function() destino,
+  ) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    final hayServidor = await OdooService().canReachServer();
+
+    if (!context.mounted) return;
+    Navigator.pop(context); // cerrar el indicador
+
+    if (!hayServidor) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    Navigator.push(context, MaterialPageRoute(builder: (context) => destino()));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,14 +71,10 @@ class CreateTripScreen extends StatelessWidget {
                 label: 'A partir de otro viaje',
                 icon: Icons.copy,
                 color: const Color(0xFF1A3A5C),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SelectTripToCopyScreen(),
-                    ),
-                  );
-                },
+                onPressed: () => _abrirSiHayCobertura(
+                  context,
+                  () => const SelectTripToCopyScreen(),
+                ),
               ),
               const SizedBox(height: 16),
 
@@ -52,16 +84,12 @@ class CreateTripScreen extends StatelessWidget {
                 label: 'Desde cero',
                 icon: Icons.add_circle_outline,
                 color: Colors.orange.shade700,
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const CreateTripFormScreen(
-                        mode: CreateTripMode.fromScratch,
-                      ),
-                    ),
-                  );
-                },
+                onPressed: () => _abrirSiHayCobertura(
+                  context,
+                  () => const CreateTripFormScreen(
+                    mode: CreateTripMode.fromScratch,
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
 

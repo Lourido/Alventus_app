@@ -157,7 +157,10 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       if (!mounted) return;
 
       setState(() {
-        _isOffline = !hasConnection;
+        // El aviso de cobertura se basa en si se ha llegado de verdad al
+        // servidor, no en lo que diga el sistema: en el iPhone dice que hay
+        // conexión aunque estés en modo avión.
+        _isOffline = !hasConnection || !OdooService.serverReachable;
         _contacts = contactRows.map((row) => ReferenceContact.fromJson(row)).toList();
         _routeFiles = routeRows.map((row) => RouteFile.fromJson(row)).toList();
         _documents = documentRows;

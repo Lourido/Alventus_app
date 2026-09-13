@@ -8,7 +8,11 @@ class OdooService {
   // Singleton: todas las pantallas usan la misma instancia
   OdooService._internal() {
     _dio.options.baseUrl = OdooConfig.baseUrl;
-    _dio.options.connectTimeout = const Duration(seconds: 15);
+    // 8 segundos y no más: sin cobertura, el fallo suele ser inmediato,
+    // pero en una red rara puede quedarse esperando, y ese rato es
+    // exactamente lo que hace que la app parezca colgada (al arrancar
+    // llega a encadenar varios intentos seguidos).
+    _dio.options.connectTimeout = const Duration(seconds: 8);
     _dio.options.receiveTimeout = const Duration(seconds: 30);
     _dio.options.headers = {
       'Content-Type': 'application/json',
@@ -295,18 +299,21 @@ class OdooService {
           print('   Mensaje: $displayMessage');
           print('   Traceback completo: ${errorData?['debug'] ?? ''}');
 
+          serverReachable = true; // ha contestado Odoo: hay servidor
           return {
             'success': false,
             'error': displayMessage,
           };
         }
 
+        serverReachable = true;
         return {
           'success': true,
           'result': response.data['result'],
         };
       } else {
         print('❌ executeKw - Status code no 200: ${response.statusCode}');
+        serverReachable = true; // el servidor ha contestado, aunque sea mal
         return {
           'success': false,
           'error': 'Error del servidor: ${response.statusCode}',
@@ -315,10 +322,12 @@ class OdooService {
     } on DioException catch (e) {
       print('❌ executeKw - DioException: ${e.message}');
       print('   Response: ${e.response?.data}');
+      final offline = _isConnectionProblem(e);
+      if (offline) serverReachable = false;
       return {
         'success': false,
         'error': 'Error de conexión: ${e.message}',
-        'offline': _isConnectionProblem(e),
+        'offline': offline,
       };
     } catch (e) {
       print('❌ executeKw - Excepción: $e');
@@ -339,6 +348,15 @@ class OdooService {
   /// inicio, el navegador sigue diciendo que SÍ hay conexión estando en
   /// modo avión, así que la única forma segura de saberlo es intentarlo
   /// de verdad y mirar cómo falla.
+  /// Si la última petición consiguió llegar al servidor.
+  ///
+  /// Es la única señal de cobertura de la que se puede uno fiar: en el
+  /// iPhone, con la app en la pantalla de inicio, el navegador dice que
+  /// hay conexión aunque el teléfono esté en modo avión, y por eso la
+  /// app enseñaba el icono de "con cobertura" sin tenerla. Esto, en
+  /// cambio, se basa en lo que ha pasado de verdad al intentarlo.
+  static bool serverReachable = true;
+
   bool _isConnectionProblem(DioException e) {
     if (e.response != null) return false; // el servidor contestó algo
     return e.type == DioExceptionType.connectionError ||
@@ -346,6 +364,24 @@ class OdooService {
         e.type == DioExceptionType.sendTimeout ||
         e.type == DioExceptionType.receiveTimeout ||
         e.type == DioExceptionType.unknown;
+  }
+
+  /// Pregunta al servidor de verdad si se puede llegar a él ahora mismo,
+  /// con la consulta más barata posible.
+  ///
+  /// Se usa ANTES de empezar algo que sin servidor no tiene sentido
+  /// (crear un viaje, por ejemplo), para poder avisar en el momento en
+  /// vez de dejar que el usuario rellene todo un formulario y se lleve
+  /// el chasco al final.
+  Future<bool> canReachServer() async {
+    final result = await executeKw(
+      model: 'project.project',
+      method: 'search_count',
+      args: [[]],
+    );
+    // Si Odoo contesta cualquier cosa (aunque sea un error suyo), hay
+    // servidor; solo cuenta como "sin cobertura" no haber llegado.
+    return result['offline'] != true;
   }
 
   /// Obtiene la lista de contactos/clientes

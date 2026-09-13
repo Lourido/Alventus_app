@@ -943,7 +943,7 @@ class _StagesScreenState extends State<StagesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Etapas'),
+        title: Text('Etapas - ${widget.project.name}'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),

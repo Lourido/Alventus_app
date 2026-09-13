@@ -133,4 +133,14 @@ const List<ChangelogEntry> kChangelog = [
       'Ahora un cambio solo se descarta si el servidor lo rechaza de verdad: si no se llega a él, se queda en la cola esperando. Y lo que baja del servidor nunca pisa un cambio tuyo que siga pendiente de subir.',
     ],
   ),
+  ChangelogEntry(
+    version: 12,
+    date: '14 de septiembre de 2026',
+    changes: [
+      'El icono de cobertura ya dice la verdad: antes se fiaba de lo que decía el teléfono, que en el iPhone asegura que hay conexión aunque estés en modo avión. Ahora se basa en si se ha conseguido hablar con el servidor de verdad.',
+      'Al crear un viaje sin cobertura, el aviso sale al elegir cómo crearlo, no después de rellenar todo el formulario, y es el mensaje de siempre en vez de un error de conexión.',
+      'En la pantalla de etapas, arriba pone ahora "Etapas - nombre del viaje".',
+      'La app tarda menos en darse por vencida cuando no hay servidor, así que se queda menos rato parecida a colgada.',
+    ],
+  ),
 ];
