@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
@@ -169,7 +169,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       if (syncFailedWhileOnline && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Hay conexión, pero no se ha podido actualizar todo con Odoo. Puede que estés viendo datos guardados.'),
+            content: Text('NO hay conexión. Estás viendo los datos guardados en el teléfono la última vez que usaste la app con conexión.'),
             backgroundColor: Colors.orange,
           ),
         );

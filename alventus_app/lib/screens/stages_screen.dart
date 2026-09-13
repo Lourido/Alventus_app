@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
 import '../services/odoo_service.dart';
@@ -231,7 +231,7 @@ class _StagesScreenState extends State<StagesScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Hay conexión, pero no se ha podido actualizar todo con Odoo. Puede que estés viendo datos guardados.'),
+        content: Text('NO hay conexión. Estás viendo los datos guardados en el teléfono la última vez que usaste la app con conexión.'),
         backgroundColor: Colors.orange,
       ),
     );
