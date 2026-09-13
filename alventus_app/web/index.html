@@ -45,6 +45,22 @@
        ver dictation.js y lib/widgets/speech/local_dictation.dart -->
   <script src="dictation.js"></script>
   <script src="file_saver.js"></script>
+
+  <!-- Registra el service worker propio que permite usar la app sin
+       conexión (modo avión). Ver web/offline_sw.js para el porqué y
+       cómo funciona. No sustituye ni depende del service worker que
+       genera el propio "flutter build web" (flutter_service_worker.js),
+       que Flutter deja vacío a propósito. -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('offline_sw.js').catch(function (e) {
+          console.warn('No se pudo registrar el service worker offline:', e);
+        });
+      });
+    }
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
