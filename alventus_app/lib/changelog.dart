@@ -125,4 +125,12 @@ const List<ChangelogEntry> kChangelog = [
       'Y arreglado de raíz lo de guardar sin cobertura: en el iPhone, con la app instalada en la pantalla de inicio, el navegador dice que SÍ hay conexión aunque estés en modo avión, y por eso la app lo intentaba contra el servidor y daba error en rojo. Ahora ya no se fía de eso: si al guardar no consigue llegar al servidor, guarda el cambio en el teléfono y lo sube solo cuando vuelve la cobertura.',
     ],
   ),
+  ChangelogEntry(
+    version: 11,
+    date: '13 de septiembre de 2026 (cierre)',
+    changes: [
+      'Los cambios hechos sin cobertura ya no se pierden al recuperarla. Antes, si la app intentaba subirlos mientras seguía sin cobertura de verdad, daba el intento por fallido y los descartaba; al volver la cobertura ya no quedaba nada que subir y lo que bajaba del servidor pisaba tu cambio.',
+      'Ahora un cambio solo se descarta si el servidor lo rechaza de verdad: si no se llega a él, se queda en la cola esperando. Y lo que baja del servidor nunca pisa un cambio tuyo que siga pendiente de subir.',
+    ],
+  ),
 ];

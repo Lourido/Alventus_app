@@ -22,6 +22,21 @@ class SyncService {
   bool _isSyncing = false;
   bool _isOnline = true;
 
+  /// Se pone a true cuando el último intento de mandar un cambio a Odoo
+  /// falló por no poder llegar al servidor (y no porque Odoo lo haya
+  /// rechazado). Es la diferencia entre "vuelve a intentarlo luego" y
+  /// "esto no va a colar nunca", y de ella depende que un cambio hecho
+  /// sin cobertura se conserve o se pierda.
+  bool _lastFailureWasConnection = false;
+
+  /// Traduce la respuesta de Odoo a "¿ha ido bien?", apuntando de paso si
+  /// el fallo ha sido por falta de conexión.
+  bool _succeeded(Map<String, dynamic> result) {
+    if (result['success'] == true) return true;
+    if (result['offline'] == true) _lastFailureWasConnection = true;
+    return false;
+  }
+
   bool get isOnline => _isOnline;
   bool get isSyncing => _isSyncing;
 
@@ -111,6 +126,71 @@ class SyncService {
   }
 
   /// Método INTERNO: lógica real de sincronización (sin protección, lo usan fullSync y syncPendingChanges)
+  /// Aplica sobre las tareas recién bajadas de Odoo los cambios locales
+  /// que todavía están en la cola de pendientes, para que lo que el
+  /// usuario escribió sin cobertura no lo pise la versión antigua que
+  /// sigue habiendo en el servidor.
+  Future<void> _reapplyPendingTaskChanges(
+    int projectId,
+    List<Map<String, dynamic>> tasksToSave,
+  ) async {
+    try {
+      final pending = await _localDb.getPendingChanges();
+      if (pending.isEmpty) return;
+
+      final byId = {for (final t in tasksToSave) t['id'] as int: t};
+
+      Map<int, String>? stageNamesById;
+
+      for (final change in pending) {
+        if (change['model'] != 'project.task') continue;
+        if (change['action'] != 'update') continue;
+
+        final id = change['record_id'] as int?;
+        if (id == null) continue;
+
+        final target = byId[id];
+        if (target == null) continue; // esa tarea ya no está en Odoo
+
+        final raw = change['data'] as String?;
+        if (raw == null) continue;
+
+        final data = jsonDecode(raw) as Map<String, dynamic>;
+
+        for (final field in const [
+          'name',
+          'description',
+          'fecha_desde',
+          'fecha_hasta',
+          'sequence',
+        ]) {
+          if (data.containsKey(field)) target[field] = data[field];
+        }
+
+        // Un cambio de etapa pendiente también manda: además del id, hay
+        // que dejar el nombre de la etapa, que es por lo que la app
+        // agrupa las tareas en pantalla.
+        if (data.containsKey('stage_id')) {
+          final newStageId = data['stage_id'] is int
+              ? data['stage_id'] as int
+              : int.tryParse(data['stage_id'].toString());
+          if (newStageId != null) {
+            target['stage_id'] = newStageId;
+
+            stageNamesById ??= {
+              for (final s in await _localDb.getStages(projectId))
+                s['id'] as int: (s['name']?.toString() ?? ''),
+            };
+            final name = stageNamesById[newStageId];
+            if (name != null && name.isNotEmpty) target['stage_name'] = name;
+          }
+        }
+      }
+    } catch (e) {
+      print('⚠️ No se pudieron reaplicar los cambios pendientes: $e');
+    }
+  }
+
   Future<void> _doSyncPendingChanges() async {
     print('🔄 Iniciando sincronización de cambios pendientes...');
 
@@ -141,6 +221,7 @@ class SyncService {
       print('🔄 Datos: $data');
 
       try {
+        _lastFailureWasConnection = false;
         bool success = false;
 
         switch (action) {
@@ -161,13 +242,31 @@ class SyncService {
         if (success) {
           await _localDb.markChangeSynced(changeId);
           print('✅ Cambio sincronizado: $action $model (ID: $recordId)');
+        } else if (_lastFailureWasConnection) {
+          // No se ha podido llegar al servidor. El cambio se queda
+          // PENDIENTE para volver a intentarlo más tarde: darlo por
+          // fallido aquí era justo lo que hacía que un cambio hecho sin
+          // cobertura se perdiera. Pasaba así: al mirar la pantalla
+          // todavía sin cobertura, la app creía que sí la había (en el
+          // iPhone el navegador lo dice aunque estés en modo avión),
+          // intentaba mandarlo, fallaba, y lo descartaba; al volver la
+          // cobertura ya no quedaba nada que mandar y lo que bajaba de
+          // Odoo pisaba el cambio del usuario.
+          //
+          // Y no se sigue con el resto: si no hay servidor para uno,
+          // tampoco lo habrá para los demás.
+          print('📡 Sin servidor: el cambio se queda pendiente para luego');
+          return;
         } else {
           await _localDb.markChangeFailed(changeId);
           print('❌ Error al sincronizar: $action $model (ID: $recordId)');
         }
       } catch (e) {
-        await _localDb.markChangeFailed(changeId);
-        print('❌ Excepción al sincronizar: $e');
+        // Ante un error inesperado también se conserva el cambio: es
+        // preferible reintentarlo que perder algo que escribió el
+        // usuario.
+        print('❌ Excepción al sincronizar (se deja pendiente): $e');
+        return;
       }
     }
 
@@ -338,6 +437,14 @@ class SyncService {
           'sequence': json['sequence'] as int? ?? 0,
         };
       }).toList();
+
+      // Antes de pisar la copia del teléfono con lo que baja de Odoo, se
+      // vuelven a poner encima los cambios que AÚN están esperando a
+      // subirse. Sin esto, un cambio hecho sin cobertura desaparecía
+      // delante del usuario en cuanto la copia de Odoo (todavía con el
+      // valor viejo) llegaba antes de que su cambio hubiera podido
+      // subir.
+      await _reapplyPendingTaskChanges(projectId, tasksToSave);
 
       await _localDb.saveTasks(tasksToSave, projectId: projectId);
       print('✅ ${tasksToSave.length} tareas sincronizadas para el proyecto $projectId');
@@ -600,7 +707,7 @@ class SyncService {
         );
 
         print('🔄 _syncCreate: Resultado = ${result['success']}');
-        return result['success'] == true;
+        return _succeeded(result);
       } catch (e) {
         print('❌ Error en _syncCreate: $e');
         return false;
@@ -637,7 +744,7 @@ class SyncService {
         }
 
         print('🔄 _syncCreate: Resultado = ${result['success']}');
-        return result['success'] == true;
+        return _succeeded(result);
       } catch (e) {
         print('❌ Error en _syncCreate (contacto): $e');
         return false;
@@ -672,7 +779,7 @@ class SyncService {
             newStageId: newStageId,
           );
           print('🔄 _syncUpdate: Resultado = ${result['success']}');
-          return result['success'] == true;
+          return _succeeded(result);
         }
 
         // Reordenar tareas dentro de una etapa (encolado al moverlas sin
@@ -689,7 +796,7 @@ class SyncService {
             sequence: newSequence,
           );
           print('🔄 _syncUpdate: Resultado = ${result['success']}');
-          return result['success'] == true;
+          return _succeeded(result);
         }
 
         print('🔄 _syncUpdate: Actualizando tarea $recordId');
@@ -704,7 +811,7 @@ class SyncService {
         );
 
         print('🔄 _syncUpdate: Resultado = ${result['success']}');
-        return result['success'] == true;
+        return _succeeded(result);
       }
 
       if (model == 'project.task.type') {
@@ -716,7 +823,7 @@ class SyncService {
           description: data['description']?.toString() ?? '',
         );
         print('🔄 _syncUpdate: Resultado = ${result['success']}');
-        return result['success'] == true;
+        return _succeeded(result);
       }
 
       return false;
@@ -732,7 +839,7 @@ class SyncService {
       print('🔄 _syncDelete: Borrando tarea $recordId');
       final result = await _odooService.deleteTask(recordId);
       print('🔄 _syncDelete: Resultado = ${result['success']}');
-      return result['success'] == true;
+      return _succeeded(result);
     }
     return false;
   }
