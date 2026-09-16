@@ -57,7 +57,7 @@
 // tocarlas aquí -- ver pwa-status.md para el porqué de este último
 // caso concreto.
 
-const CACHE_NAME = 'alventus-offline-v2';
+const CACHE_NAME = 'alventus-offline-v3';
 
 // Rutas relativas a la carpeta donde vive este propio archivo (que es
 // la misma carpeta donde se despliega toda la app), para que funcionen
@@ -77,7 +77,47 @@ const PRECACHE_URLS = [
   'icons/Icon-512.png',
   'icons/Icon-maskable-192.png',
   'icons/Icon-maskable-512.png',
+  // Recursos que Flutter pide nada más arrancar. Si faltan, la app sale
+  // con los iconos y el logo rotos. Se guardaban solos, pero solo a
+  // partir de la SEGUNDA vez que se abría la app con conexión (este
+  // service worker se registra al final de la carga, así que la primera
+  // vez ni se entera de que se piden). Precargándolos, basta con la
+  // primera. Que alguno no exista en un build futuro no rompe nada: cada
+  // descarga va en su propio try/catch.
+  'assets/FontManifest.json',
+  'assets/AssetManifest.bin.json',
+  'assets/AssetManifest.json',
+  'assets/NOTICES',
+  'assets/fonts/MaterialIcons-Regular.otf',
+  'assets/packages/cupertino_icons/assets/CupertinoIcons.ttf',
+  'assets/assets/logo_alventus.png',
+  'assets/assets/splash_background.png',
 ];
+
+// El motor gráfico de Flutter (CanvasKit). Sin esto la app no dibuja
+// NADA, así que es tan imprescindible como main.dart.js. Solo se puede
+// guardar porque ahora se carga de aquí y no de www.gstatic.com (ver el
+// comentario del index.html); mientras venía de fuera, este service
+// worker no podía tocarlo, y por eso al arrancar sin cobertura salía la
+// pantalla en blanco.
+//
+// Hay dos versiones y NO son intercambiables: los navegadores basados en
+// Chromium (Chrome, Edge y, por tanto, Android) usan la de la subcarpeta
+// "chromium", y los demás (Safari, iPhone) la normal. Se guarda solo la
+// que vaya a usar este navegador, para no descargar de más: son varios
+// megas cada una.
+//
+// Si el navegador no se reconociera bien y se guardara la que no es, la
+// app no se queda rota para siempre: la segunda vez que se abra con
+// conexión, este service worker ya está activo, ve la petición de la
+// buena y la guarda.
+const ES_CHROMIUM = /Chrom(e|ium)|Edg\/|OPR\//.test(
+  (self.navigator && self.navigator.userAgent) || ''
+);
+
+const CANVASKIT_URLS = ES_CHROMIUM
+  ? ['canvaskit/chromium/canvaskit.js', 'canvaskit/chromium/canvaskit.wasm']
+  : ['canvaskit/canvaskit.js', 'canvaskit/canvaskit.wasm'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -85,7 +125,7 @@ self.addEventListener('install', (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await Promise.all(
-        PRECACHE_URLS.map(async (url) => {
+        PRECACHE_URLS.concat(CANVASKIT_URLS).map(async (url) => {
           try {
             const response = await fetch(url, { cache: 'no-store' });
             if (response && response.ok) {
@@ -137,8 +177,26 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       } catch (err) {
-        const cached = await caches.match(request);
+        // Sin red: se busca en la caché. "ignoreSearch" hace que valga
+        // la copia guardada aunque la dirección traiga algún "?..." al
+        // final que no estuviera cuando se guardó (pasa, por ejemplo,
+        // cuando algo añade un parámetro para evitar la caché); sin eso
+        // la copia buena estaba ahí pero no se encontraba.
+        const cached = await caches.match(request, { ignoreSearch: true });
         if (cached) return cached;
+
+        // Si lo que se pedía era la página en sí (abrir la app), se
+        // devuelve el index.html guardado, venga la dirección como
+        // venga. Es lo que permite que la app arranque sin cobertura
+        // cuando el teléfono la ha descargado de memoria estando en
+        // segundo plano.
+        if (request.mode === 'navigate') {
+          const index =
+            (await caches.match('index.html', { ignoreSearch: true })) ||
+            (await caches.match('./', { ignoreSearch: true }));
+          if (index) return index;
+        }
+
         throw err;
       }
     })()

@@ -143,4 +143,12 @@ const List<ChangelogEntry> kChangelog = [
       'La app tarda menos en darse por vencida cuando no hay servidor, así que se queda menos rato parecida a colgada.',
     ],
   ),
+  ChangelogEntry(
+    version: 13,
+    date: '16 de septiembre de 2026',
+    changes: [
+      'Arreglada la pantalla en blanco al volver a la app sin cobertura. El motor con el que la app dibuja se descargaba de un servidor de Google cada vez que arrancaba, y sin cobertura no había manera de conseguirlo. Ahora se usa la copia que ya viene dentro de la propia app y se guarda en el teléfono.',
+      'Con la app abierta no se notaba, porque ese motor ya estaba cargado; solo salía cuando el iPhone la descargaba de memoria al dejarla en segundo plano y al volver tenía que arrancarla de nuevo.',
+    ],
+  ),
 ];

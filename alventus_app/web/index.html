@@ -61,6 +61,52 @@
     }
   </script>
 
+  <!-- Hace que el motor gráfico de Flutter (CanvasKit) se cargue de la
+       COPIA LOCAL que ya viene en esta misma carpeta, en vez de
+       descargarla de www.gstatic.com cada vez que arranca la app.
+
+       Por qué importa: al descargarse de otro dominio, esa copia no la
+       puede guardar nuestro service worker (solo guarda lo de este
+       mismo sitio), así que sin cobertura no había forma de obtenerla y
+       la app no llegaba a dibujar nada: pantalla en blanco. Y no se
+       notaba teniendo la app ya abierta, porque entonces el motor ya
+       estaba cargado en memoria; solo aparecía cuando el iPhone
+       descargaba la app de la memoria al dejarla en segundo plano y al
+       volver tenía que arrancarla otra vez, ya sin cobertura.
+
+       Cómo funciona: el propio flutter_bootstrap.js decide entre la
+       copia local y la de gstatic mirando "useLocalCanvasKit" dentro de
+       _flutter.buildConfig, que él mismo rellena al cargarse. Aquí se
+       prepara esa propiedad de antemano para marcarla en cuanto la
+       escriba. Si algún día Flutter cambiara por dentro y esto dejara
+       de encajar, la app seguiría funcionando igual que hasta ahora
+       (volvería a tirar de gstatic), no se rompe nada.
+
+       Lo mismo se consigue compilando con "flutter build web
+       --no-web-resources-cdn"; esto lo deja asegurado aunque no se use
+       esa opción. -->
+  <script>
+    window._flutter = window._flutter || {};
+    (function () {
+      try {
+        var almacenado;
+        Object.defineProperty(window._flutter, 'buildConfig', {
+          configurable: true,
+          enumerable: true,
+          get: function () { return almacenado; },
+          set: function (valor) {
+            if (valor && typeof valor === 'object') {
+              valor.useLocalCanvasKit = true;
+            }
+            almacenado = valor;
+          }
+        });
+      } catch (e) {
+        console.warn('No se pudo forzar el CanvasKit local:', e);
+      }
+    })();
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
