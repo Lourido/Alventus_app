@@ -209,18 +209,44 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   /// sin acumular pantallas en la pila de navegación: al volver atrás
   /// desde cualquier etapa se va directo a la lista de "Etapas", no a la
   /// etapa anterior visitada.
-  void _goToStage(_StageNavEntry? target) {
+  ///
+  /// [forward] indica hacia dónde se va (a la siguiente o a la anterior),
+  /// para que la pantalla nueva entre deslizándose desde el lado que
+  /// corresponde: desde la derecha al avanzar, desde la izquierda al
+  /// retroceder. Así el movimiento acompaña al gesto del dedo.
+  void _goToStage(_StageNavEntry? target, {bool forward = true}) {
     if (target == null) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => StageTasksScreen(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => StageTasksScreen(
           project: widget.project,
           stageName: target.name,
           stageDescription: target.description,
         ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final tween = Tween<Offset>(
+            begin: Offset(forward ? 1.0 : -1.0, 0.0),
+            end: Offset.zero,
+          ).chain(CurveTween(curve: Curves.easeOutCubic));
+          return SlideTransition(position: animation.drive(tween), child: child);
+        },
       ),
     );
+  }
+
+  /// Deslizar el dedo sobre la lista de tareas para cambiar de etapa:
+  /// hacia la izquierda, a la siguiente; hacia la derecha, a la anterior
+  /// (igual que pasar páginas). Se exige un gesto con algo de velocidad
+  /// para que un roce al hacer scroll no cambie de etapa sin querer.
+  void _onHorizontalSwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() < 300) return;
+    if (velocity < 0) {
+      _goToStage(_nextStageNav, forward: true);
+    } else {
+      _goToStage(_previousStageNav, forward: false);
+    }
   }
 
   @override
@@ -1268,7 +1294,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
           IconButton(
             icon: const Icon(Icons.chevron_left),
             tooltip: 'Etapa anterior',
-            onPressed: _previousStageNav != null ? () => _goToStage(_previousStageNav) : null,
+            onPressed: _previousStageNav != null ? () => _goToStage(_previousStageNav, forward: false) : null,
           ),
           IconButton(
             icon: const Icon(Icons.chevron_right),
@@ -1286,7 +1312,16 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       ),
       body: Column(
         children: [
-          Expanded(child: _buildBodyWithDraggableFab()),
+          // El gesto de deslizar va solo sobre la lista de tareas, no sobre
+          // la franja de adjuntos de abajo, que tiene su propio scroll
+          // horizontal y no debe cambiar de etapa al moverla.
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragEnd: _onHorizontalSwipe,
+              child: _buildBodyWithDraggableFab(),
+            ),
+          ),
           _buildAttachmentsFooter(),
         ],
       ),

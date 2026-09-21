@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:crypto/crypto.dart';
 import 'odoo_service.dart';
 import 'local_database_service.dart';
 import '../utils/html_text.dart';
@@ -1051,10 +1052,14 @@ class SyncService {
       final file = File(filePath);
       if (!await file.exists()) return false;
 
+      final bytes = await file.readAsBytes();
       final result = await _odooService.uploadProjectPhoto(
         projectId: projectId,
         fileName: fileName,
-        bytes: await file.readAsBytes(),
+        bytes: bytes,
+        // Igual que al subir con conexión: se apunta la huella del
+        // original para poder detectar esta foto si se vuelve a elegir.
+        contentHash: sha1.convert(bytes).toString(),
       );
 
       if (result['success'] == true) {

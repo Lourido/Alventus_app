@@ -56,6 +56,7 @@ dependencies:
   flutter_contacts: ^1.1.9+1
   share_plus: ^12.0.1
   url_launcher: ^6.3.1
+  crypto: ^3.0.6 # huella SHA1 de las fotos, para no subir repetidas
   flutter_launcher_icons: "^0.14.4"
 
 flutter_launcher_icons:

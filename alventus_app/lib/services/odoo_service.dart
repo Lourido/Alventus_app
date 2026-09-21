@@ -1608,6 +1608,63 @@ class OdooService {
 
   /// Obtiene las fotos de grupo de un proyecto (solo metadatos, sin el
   /// contenido binario).
+  /// Huellas (SHA1) del contenido de las fotos de grupo indicadas, para
+  /// poder detectar si una foto que se va a subir ya está en el viaje.
+  ///
+  /// No hace falta ningún cambio en Odoo: la foto se guarda en un campo
+  /// Binary con attachment=True (ver project_photo.py en el módulo), así
+  /// que por debajo es un ir.attachment, con su huella SHA1 ("checksum")
+  /// y, desde que la app la apunta al subir, también la del original
+  /// (ver _tagPhotoFingerprint, que explica por qué hacen falta las dos).
+  ///
+  /// Ojo con el dominio: Odoo oculta los adjuntos que pertenecen a un
+  /// campo (res_field) salvo que se pregunte por res_field
+  /// explícitamente, que es lo que se hace aquí.
+  ///
+  /// Devuelve null si no se ha podido averiguar (por ejemplo, sin
+  /// cobertura): en ese caso solo se detectan las repetidas dentro de la
+  /// propia selección.
+  Future<Set<String>?> fetchProjectPhotoChecksums(List<int> photoIds) async {
+    if (photoIds.isEmpty) return <String>{};
+
+    final result = await executeKw(
+      model: 'ir.attachment',
+      method: 'search_read',
+      args: [
+        [
+          ['res_model', '=', 'project.photo'],
+          ['res_field', '=', 'image'],
+          ['res_id', 'in', photoIds],
+        ],
+      ],
+      kwargs: {
+        'fields': ['checksum', 'description'],
+      },
+    );
+
+    if (result['success'] != true) return null;
+
+    // Se juntan las dos huellas de cada foto: la que calcula Odoo de lo
+    // que tiene guardado (coincide si la foto no se redujo al subirla) y
+    // la del original que apunta la app al subirla (coincide siempre,
+    // pero solo existe en las fotos subidas desde que existe esto).
+    final hashes = <String>{};
+    for (final raw in (result['result'] as List<dynamic>)) {
+      final row = raw as Map<String, dynamic>;
+
+      final checksum = row['checksum'];
+      if (checksum is String && checksum.isNotEmpty) {
+        hashes.add(checksum.toLowerCase());
+      }
+
+      final description = row['description'];
+      if (description is String && description.startsWith(_photoFingerprintPrefix)) {
+        hashes.add(description.substring(_photoFingerprintPrefix.length).trim().toLowerCase());
+      }
+    }
+    return hashes;
+  }
+
   Future<Map<String, dynamic>> fetchProjectPhotos(int projectId) async {
     return executeKw(
       model: 'project.photo',
@@ -1645,11 +1702,12 @@ class OdooService {
     required int projectId,
     required String fileName,
     required Uint8List bytes,
+    String? contentHash,
   }) async {
     try {
       final base64Data = base64Encode(bytes);
 
-      return await executeKw(
+      final result = await executeKw(
         model: 'project.photo',
         method: 'create',
         args: [
@@ -1660,8 +1718,65 @@ class OdooService {
           },
         ],
       );
+
+      final newId = result['result'];
+      if (result['success'] == true && contentHash != null && newId is int) {
+        await _tagPhotoFingerprint(newId, contentHash);
+      }
+
+      return result;
     } catch (e) {
       return {'success': false, 'error': 'Error al subir la foto: $e'};
+    }
+  }
+
+  /// Prefijo con el que se guarda la huella de la foto ORIGINAL.
+  static const _photoFingerprintPrefix = 'alventus-sha1:';
+
+  /// Apunta, en el adjunto interno donde Odoo guarda la foto, la huella
+  /// SHA1 de la foto tal y como se subió.
+  ///
+  /// Hace falta porque Odoo no siempre guarda la foto tal cual: reduce
+  /// automáticamente las imágenes de más de 1920 píxeles (parámetro del
+  /// sistema base.image_autoresize_max_px), que son casi todas las hechas
+  /// con un móvil. La huella que calcula Odoo ("checksum") es entonces la
+  /// de la versión reducida, y ya no coincide con la de la foto que el
+  /// usuario vuelva a elegir en su teléfono. Guardando aparte la huella
+  /// del original, la comparación funciona igual.
+  ///
+  /// Se usa el campo "description" del propio adjunto: es un registro
+  /// técnico que ningún usuario ve (ni en la app ni en Odoo), así que no
+  /// ensucia nada y no hace falta tocar el módulo de Odoo ni actualizarlo.
+  /// Si esto fallara, la foto ya está subida igualmente: solo se pierde
+  /// poder detectarla como repetida más adelante.
+  Future<void> _tagPhotoFingerprint(int photoId, String contentHash) async {
+    try {
+      final found = await executeKw(
+        model: 'ir.attachment',
+        method: 'search',
+        args: [
+          [
+            ['res_model', '=', 'project.photo'],
+            ['res_field', '=', 'image'],
+            ['res_id', '=', photoId],
+          ],
+        ],
+      );
+      if (found['success'] != true) return;
+
+      final ids = (found['result'] as List<dynamic>).whereType<int>().toList();
+      if (ids.isEmpty) return;
+
+      await executeKw(
+        model: 'ir.attachment',
+        method: 'write',
+        args: [
+          ids,
+          {'description': '$_photoFingerprintPrefix$contentHash'},
+        ],
+      );
+    } catch (e) {
+      print('⚠️ No se pudo guardar la huella de la foto $photoId: $e');
     }
   }
 

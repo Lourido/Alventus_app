@@ -10,6 +10,7 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:crypto/crypto.dart';
 import '../utils/web_file_opener.dart';
 import '../utils/vcard.dart';
 import '../services/odoo_service.dart';
@@ -1521,46 +1522,209 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
 
     if (!mounted) return;
 
+    // Se leen ya los bytes (hacen falta igualmente para subirlas) y se
+    // calcula la huella de cada foto a partir de su CONTENIDO.
+    //
+    // A diferencia de los documentos, las fotos no se comparan por nombre:
+    // suelen llegar con nombres genéricos que se repiten entre fotos
+    // distintas, y la misma foto puede llegar con nombres distintos según
+    // de dónde se coja. Por nombre se marcarían como repetidas fotos que
+    // no lo son, y se dejarían pasar las que sí.
+    final picked = <_PickedPhoto>[];
+    for (final image in images) {
+      final bytes = await image.readAsBytes();
+      picked.add(_PickedPhoto(
+        file: image,
+        bytes: bytes,
+        hash: sha1.convert(bytes).toString(),
+      ));
+    }
+
+    if (!mounted) return;
+
+    List<_PickedPhoto> chosen;
+    if (fromCamera) {
+      // Una foto recién hecha con la cámara no puede estar ya subida.
+      chosen = picked;
+    } else {
+      final uploadedIds = _photos
+          .map((photo) => photo['id'])
+          .whereType<int>()
+          .where((id) => id > 0) // las negativas aún no están en Odoo
+          .toList();
+      final existingHashes =
+          await _odooService.fetchProjectPhotoChecksums(uploadedIds) ?? <String>{};
+
+      if (!mounted) return;
+
+      final reviewed = await _showPhotosReviewDialog(
+        picked: picked,
+        existingHashes: existingHashes,
+      );
+      if (reviewed == null || reviewed.isEmpty) return;
+      chosen = reviewed;
+    }
+
+    if (!mounted) return;
+
     final hasConnection = await _syncService.checkConnectivity();
 
     if (!hasConnection) {
       if (kIsWeb) {
         _showSnackBar(
-          'Sin conexión: en el navegador hace falta conexión para subir fotos',
+          'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.',
           isError: true,
         );
         return;
       }
-      for (final image in images) {
+      for (final photo in chosen) {
         await _localDb.saveOfflineProjectPhoto(
           projectId: widget.project.id,
-          fileName: image.name,
-          filePath: image.path,
+          fileName: photo.file.name,
+          filePath: photo.file.path,
         );
       }
       if (!mounted) return;
       _showSnackBar(
-        '${images.length} foto(s) guardadas sin conexión. Se subirán cuando haya señal.',
+        '${chosen.length} foto(s) guardadas sin conexión. Se subirán cuando haya señal.',
       );
       _loadAll();
       return;
     }
 
-    _showSnackBar('Subiendo ${images.length} foto(s)...');
+    _showSnackBar('Subiendo ${chosen.length} foto(s)...');
 
     int okCount = 0;
-    for (final image in images) {
+    for (final photo in chosen) {
       final result = await _odooService.uploadProjectPhoto(
         projectId: widget.project.id,
-        fileName: image.name,
-        bytes: await image.readAsBytes(),
+        fileName: photo.file.name,
+        bytes: photo.bytes,
+        contentHash: photo.hash,
       );
       if (result['success'] == true) okCount++;
     }
 
     if (!mounted) return;
-    _showSnackBar('$okCount de ${images.length} foto(s) subidas');
+    _showSnackBar('$okCount de ${chosen.length} foto(s) subidas');
     _loadAll();
+  }
+
+  /// Igual que el repaso de documentos antes de subir, pero para fotos:
+  /// lista las elegidas con una miniatura (con fotos, el nombre no dice
+  /// nada; la imagen lo dice todo), y deja desmarcadas de entrada las que
+  /// ya estén en el viaje o estén repetidas dentro de la propia
+  /// selección. El usuario puede cambiarlo antes de pulsar "Subir".
+  /// Devuelve las que queden marcadas, o null si se cancela.
+  Future<List<_PickedPhoto>?> _showPhotosReviewDialog({
+    required List<_PickedPhoto> picked,
+    required Set<String> existingHashes,
+  }) async {
+    final reasons = <String?>[];
+    final seen = <String>{};
+    for (final photo in picked) {
+      if (existingHashes.contains(photo.hash)) {
+        reasons.add('Ya está en este viaje');
+      } else if (seen.contains(photo.hash)) {
+        reasons.add('Repetida en esta selección');
+      } else {
+        reasons.add(null);
+      }
+      seen.add(photo.hash);
+    }
+
+    final selected = <int>{
+      for (var i = 0; i < picked.length; i++)
+        if (reasons[i] == null) i,
+    };
+
+    return showDialog<List<_PickedPhoto>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Confirmar fotos'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: picked.length,
+                  itemBuilder: (context, index) {
+                    final photo = picked[index];
+                    final reason = reasons[index];
+
+                    return CheckboxListTile(
+                      value: selected.contains(index),
+                      activeColor: Theme.of(context).colorScheme.primary,
+                      checkColor: Colors.white,
+                      side: BorderSide(color: Theme.of(context).colorScheme.onSurface, width: 1.5),
+                      secondary: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Image.memory(
+                          photo.bytes,
+                          width: 48,
+                          height: 48,
+                          fit: BoxFit.cover,
+                          // Se decodifica ya en pequeño: son solo
+                          // miniaturas y así no se dispara la memoria con
+                          // muchas fotos grandes a la vez.
+                          cacheWidth: 96,
+                          gaplessPlayback: true,
+                          errorBuilder: (context, error, stackTrace) => const SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Icon(Icons.image),
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        photo.file.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: reason == null
+                          ? null
+                          : Text(
+                              reason,
+                              style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w600),
+                            ),
+                      onChanged: (checked) {
+                        setDialogState(() {
+                          if (checked == true) {
+                            selected.add(index);
+                          } else {
+                            selected.remove(index);
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: selected.isEmpty
+                      ? null
+                      : () {
+                          final chosen = <_PickedPhoto>[
+                            for (var i = 0; i < picked.length; i++)
+                              if (selected.contains(i)) picked[i],
+                          ];
+                          Navigator.pop(dialogContext, chosen);
+                        },
+                  child: const Text('Subir'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _downloadAndOpenPhoto(Map<String, dynamic> photo) async {
@@ -2403,4 +2567,15 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       ),
     );
   }
+}
+
+/// Una foto elegida para subir, con sus bytes ya leídos y la huella SHA1
+/// de su contenido (la misma que calcula Odoo para lo que ya tiene
+/// guardado, así que se pueden comparar directamente).
+class _PickedPhoto {
+  final XFile file;
+  final Uint8List bytes;
+  final String hash;
+
+  _PickedPhoto({required this.file, required this.bytes, required this.hash});
 }

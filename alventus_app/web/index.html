@@ -45,6 +45,11 @@
        ver dictation.js y lib/widgets/speech/local_dictation.dart -->
   <script src="dictation.js"></script>
   <script src="file_saver.js"></script>
+  <!-- Generador del PDF del viaje (botón "Generar PDF" en Etapas y
+       tareas). Es pequeño; la librería pesada que usa, pdf-lib, no se
+       carga aquí sino la primera vez que se genera un PDF. Ver
+       web/trip_pdf.js. -->
+  <script src="trip_pdf.js"></script>
 
   <!-- Registra el service worker propio que permite usar la app sin
        conexión (modo avión). Ver web/offline_sw.js para el porqué y

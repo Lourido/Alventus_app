@@ -280,8 +280,8 @@ class HomeScreen extends StatelessWidget {
               content: SwitchListTile(
                 title: const Text('Avisar al abrir un viaje'),
                 subtitle: const Text(
-                  'Muestra un mensaje y va directo a la etapa del día cuando '
-                  'toca, y avisa cuando falta poco para salir.',
+                  'Si hoy es un día de viaje, al abrir la app va directo a la '
+                  'etapa de hoy. También avisa cuando falta poco para salir.',
                 ),
                 value: currentValue,
                 onChanged: (value) {

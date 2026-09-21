@@ -1,6 +1,9 @@
 ﻿import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
+import '../models/project.dart';
+import '../services/local_database_service.dart';
 import '../services/odoo_service.dart';
 import '../services/storage_service.dart';
 import '../services/sync_service.dart';
@@ -8,6 +11,7 @@ import '../widgets/update/update_checker.dart';
 import '../widgets/changelog/changelog_dialog.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
+import 'project_overview_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -90,7 +94,7 @@ class _SplashScreenState extends State<SplashScreen>
                 userName: result['username'] as String? ?? 'Usuario',),
           ),
         );
-        _scheduleAppNotices();
+        _scheduleAppNotices(openTodayTrip: true);
         SyncService().fullSync();
       } else {
         print('🔍 _checkSession: Navegando a LoginScreen');
@@ -128,7 +132,7 @@ class _SplashScreenState extends State<SplashScreen>
             ),
           ),
         );
-        _scheduleAppNotices();
+        _scheduleAppNotices(openTodayTrip: true);
       } else {
         print('🔍 _checkSession: No hay credenciales guardadas, yendo a LoginScreen');
         Navigator.pushReplacement(
@@ -161,7 +165,14 @@ class _SplashScreenState extends State<SplashScreen>
   /// aproximadamente un segundo, sin que el usuario lo hubiera cerrado
   /// ni tocado nada. Llamando a esto después de navegar, ya no hay
   /// ningún pushReplacement pendiente que pueda "tragarse" el diálogo.
-  void _scheduleAppNotices() {
+  ///
+  /// Si [openTodayTrip] es true (solo cuando se ha entrado a la pantalla
+  /// de inicio, no al login), al final se abre directamente el viaje que
+  /// se esté haciendo hoy, si lo hay. Va lo ÚLTIMO a propósito: después
+  /// de los avisos, para no abrir una pantalla por encima de un diálogo
+  /// (que es justo el tipo de choque que hacía desaparecer el de
+  /// Novedades).
+  void _scheduleAppNotices({bool openTodayTrip = false}) {
     unawaited(Future(() async {
       // Pequeña espera para que la pantalla de destino (login u home) ya
       // esté totalmente montada antes de mostrar cualquier aviso encima.
@@ -176,7 +187,85 @@ class _SplashScreenState extends State<SplashScreen>
       if (ctx2 != null) {
         await checkAndShowChangelog(ctx2);
       }
+      if (openTodayTrip) {
+        await _openTripHappeningToday();
+      }
     }));
+  }
+
+  /// Si hoy es uno de los días de algún viaje, lo abre directamente.
+  ///
+  /// La pantalla del viaje ya sabe, al abrirse, saludar ("¡Buen viaje!")
+  /// y saltar a la etapa de hoy con sus tareas (ver
+  /// _maybeJumpToTodayStage en project_overview_screen.dart); aquí solo
+  /// falta llegar hasta ella sin que el usuario tenga que buscar el viaje.
+  ///
+  /// Se hace con los datos guardados en el teléfono, así que funciona
+  /// igual sin cobertura. Respeta el interruptor de "Avisos de viaje" de
+  /// la pantalla de inicio: si está apagado, no se abre nada solo.
+  Future<void> _openTripHappeningToday() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool('trip_notifications_enabled') ?? true;
+      if (!enabled) return;
+
+      final rows = await LocalDatabaseService().getProjects();
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      Map<String, dynamic>? todayTrip;
+      DateTime? todayTripStart;
+
+      for (final row in rows) {
+        final start = _parseDay(row['date_start']);
+        final end = _parseDay(row['date_end']);
+        if (start == null || end == null) continue;
+        if (today.isBefore(start) || today.isAfter(end)) continue;
+
+        // Si por lo que sea hay dos viajes a la vez, se abre el que
+        // empezó más tarde (el más "actual").
+        if (todayTripStart == null || start.isAfter(todayTripStart)) {
+          todayTrip = row;
+          todayTripStart = start;
+        }
+      }
+
+      if (todayTrip == null) return;
+
+      final project = Project(
+        id: todayTrip['id'] as int,
+        name: todayTrip['name'] as String? ?? '',
+        description: todayTrip['description'] as String?,
+        userName: todayTrip['user_name'] as String?,
+        partnerName: todayTrip['partner_name'] as String?,
+        dateStart: todayTrip['date_start'] as String?,
+        dateEnd: todayTrip['date_end'] as String?,
+        taskCount: todayTrip['task_count'] as int? ?? 0,
+      );
+
+      rootNavigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (context) => ProjectOverviewScreen(project: project)),
+      );
+    } catch (e) {
+      // Esto es una comodidad, no algo imprescindible: si falla, el
+      // usuario se queda en la pantalla de inicio como siempre.
+      print('⚠️ No se pudo abrir el viaje de hoy: $e');
+    }
+  }
+
+  /// Convierte una fecha guardada ("2026-09-21" o con hora) en el día,
+  /// sin horas; null si no hay fecha o no se entiende.
+  static DateTime? _parseDay(dynamic value) {
+    if (value == null || value == false) return null;
+    final s = value.toString().trim();
+    if (s.isEmpty || s.toLowerCase() == 'false') return null;
+    try {
+      final d = DateTime.parse(s);
+      return DateTime(d.year, d.month, d.day);
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

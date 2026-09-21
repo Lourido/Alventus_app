@@ -151,4 +151,14 @@ const List<ChangelogEntry> kChangelog = [
       'Con la app abierta no se notaba, porque ese motor ya estaba cargado; solo salía cuando el iPhone la descargaba de memoria al dejarla en segundo plano y al volver tenía que arrancarla de nuevo.',
     ],
   ),
+  ChangelogEntry(
+    version: 14,
+    date: '21 de septiembre de 2026',
+    changes: [
+      'Nuevo botón "Generar PDF" en "Ver etapas y tareas del viaje", con dos opciones: solo etapas y tareas, o también los documentos del viaje. Cada etapa y cada documento empiezan en una página nueva, y los documentos PDF se incluyen con su contenido completo. "Etapas y tareas" funciona también sin cobertura.',
+      'Al subir fotos de grupo, la app avisa de las que ya están en el viaje o de las que has elegido dos veces, aunque tengan otro nombre: se comparan por su contenido, no por el nombre del archivo.',
+      'Dentro de una etapa, puedes pasar a la anterior o a la siguiente deslizando el dedo a derecha o izquierda.',
+      'Si hoy es un día de viaje, al abrir la app se va directamente a la etapa de hoy con sus tareas.',
+    ],
+  ),
 ];

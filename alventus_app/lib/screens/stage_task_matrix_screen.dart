@@ -1,8 +1,11 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../services/odoo_service.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
+import '../utils/trip_pdf.dart';
 
 /// Muestra una rejilla con las etapas del viaje en columnas (4 visibles a
 /// la vez, con scroll horizontal para ver el resto) y, dentro de cada
@@ -19,6 +22,10 @@ class StageTaskMatrixScreen extends StatefulWidget {
 }
 
 class _StageColumn {
+  // Nombre completo de la etapa tal y como está en Odoo (p. ej.
+  // "Día 3 - 25/09/2026"). Hace falta para el PDF: con él se buscan la
+  // descripción de la etapa y sus tareas completas.
+  final String stageName;
   final String headerLine1; // "Día 3" (o el nombre completo si no encaja el patrón)
   final String? headerLine2; // fecha en dd-mm-yyyy, o el resto del texto original
   final String? headerLine3; // día de la semana, si se pudo calcular
@@ -26,6 +33,7 @@ class _StageColumn {
   final DateTime? sortDate;
 
   _StageColumn({
+    required this.stageName,
     required this.headerLine1,
     this.headerLine2,
     this.headerLine3,
@@ -94,7 +102,7 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
     final match = RegExp(r'^(Día\s*\d+)\s*-\s*(.+)$').firstMatch(stageName.trim());
 
     if (match == null) {
-      return _StageColumn(headerLine1: stageName, taskNames: taskNames);
+      return _StageColumn(stageName: stageName, headerLine1: stageName, taskNames: taskNames);
     }
 
     final line1 = match.group(1)!.trim();
@@ -103,7 +111,7 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
     final dateMatch = RegExp(r'^(\d{2})/(\d{2})/(\d{4})$').firstMatch(rest);
     if (dateMatch == null) {
       // No es una fecha (p.ej. "Antes de salir"): se deja tal cual.
-      return _StageColumn(headerLine1: line1, headerLine2: rest, taskNames: taskNames);
+      return _StageColumn(stageName: stageName, headerLine1: line1, headerLine2: rest, taskNames: taskNames);
     }
 
     final day = dateMatch.group(1)!;
@@ -119,6 +127,7 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
     } catch (_) {}
 
     return _StageColumn(
+      stageName: stageName,
       headerLine1: line1,
       headerLine2: line2,
       headerLine3: line3,
@@ -244,12 +253,264 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
     });
   }
 
+  // ---------------------------------------------------------------------
+  // GENERAR PDF
+  // ---------------------------------------------------------------------
+
+  static const _mensajeSinCobertura =
+      'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+
+  Future<void> _onGeneratePdfPressed() async {
+    final includeDocuments = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Generar PDF'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Etapas y tareas únicamente', style: TextStyle(fontSize: 16)),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Etapas, tareas y documentos', style: TextStyle(fontSize: 16)),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (includeDocuments == null || !mounted) return;
+
+    // Con documentos hace falta cobertura (hay que descargarlos de Odoo):
+    // se comprueba ya, hablando de verdad con el servidor, para avisar en
+    // el momento en vez de después de un rato esperando.
+    if (includeDocuments) {
+      final canReach = await _odooService.canReachServer();
+      if (!mounted) return;
+      if (!canReach) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(_mensajeSinCobertura), backgroundColor: Colors.orange),
+        );
+        return;
+      }
+    }
+
+    await _generatePdf(includeDocuments: includeDocuments);
+  }
+
+  Future<void> _generatePdf({required bool includeDocuments}) async {
+    final progress = ValueNotifier<String>('Preparando el PDF...');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Expanded(
+                child: ValueListenableBuilder<String>(
+                  valueListenable: progress,
+                  builder: (context, value, _) => Text(value),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    String result;
+    try {
+      final data = await _collectPdfData(includeDocuments: includeDocuments, progress: progress);
+      progress.value = 'Generando el PDF...';
+      result = await buildTripPdfOnWeb(jsonEncode(data), _pdfFileName(includeDocuments));
+    } catch (e) {
+      result = 'error: $e';
+    }
+
+    if (!mounted) return;
+    // Cerrar el indicador de progreso. (El ValueNotifier no se libera a
+    // mano a propósito: el diálogo aún lo está escuchando mientras se
+    // anima al cerrarse, y liberarlo ahí daría un error. Al no quedar
+    // nadie usándolo, se recoge solo.)
+    Navigator.of(context, rootNavigator: true).pop();
+
+    if (result == 'ok') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PDF generado'), backgroundColor: Colors.green),
+      );
+    } else {
+      final motivo = result.startsWith('error:') ? result.substring(6).trim() : result;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se ha podido generar el PDF: $motivo'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  /// Reúne todo lo que va en el PDF, en el formato que espera
+  /// web/trip_pdf.js. Etapas y tareas salen de lo guardado en el teléfono
+  /// (por eso esa opción funciona sin cobertura), y en el MISMO orden en
+  /// que se ven en esta pantalla.
+  Future<Map<String, dynamic>> _collectPdfData({
+    required bool includeDocuments,
+    required ValueNotifier<String> progress,
+  }) async {
+    final projectId = widget.project.id;
+
+    final cachedStages = await _localDb.getStages(projectId);
+    final descriptionByStage = <String, String>{
+      for (final s in cachedStages)
+        (s['name']?.toString() ?? ''): (s['description']?.toString() ?? ''),
+    };
+
+    final taskRows = await _localDb.getTasks(projectId);
+    final tasksByStage = _groupTasksByStageName(taskRows);
+
+    final stages = <Map<String, dynamic>>[];
+    for (final column in _columns) {
+      final tasks = List<Map<String, dynamic>>.from(tasksByStage[column.stageName] ?? []);
+      tasks.sort((a, b) {
+        final seqA = a['sequence'] as int? ?? 0;
+        final seqB = b['sequence'] as int? ?? 0;
+        if (seqA != seqB) return seqA.compareTo(seqB);
+        return (a['id'] as int).compareTo(b['id'] as int);
+      });
+
+      stages.add({
+        'title': column.stageName,
+        'subtitle': column.headerLine3,
+        'description': descriptionByStage[column.stageName],
+        'tasks': [
+          for (final t in tasks)
+            {
+              'time': _pdfTimeRange(t['fecha_desde'], t['fecha_hasta']),
+              'name': t['name']?.toString() ?? '',
+              'description': t['description']?.toString(),
+            },
+        ],
+      });
+    }
+
+    final documents = <Map<String, dynamic>>[];
+    if (includeDocuments) {
+      final docRows = (await _localDb.getProjectDocuments(projectId))
+          .where((d) => (d['id'] as int? ?? 0) > 0) // los pendientes aún no están en Odoo
+          .toList();
+
+      for (var i = 0; i < docRows.length; i++) {
+        final row = docRows[i];
+        progress.value = 'Descargando documentos (${i + 1} de ${docRows.length})...';
+
+        String? base64Data;
+        final download = await _odooService.downloadAttachment(row['id'] as int);
+        if (download['success'] == true) {
+          final records = download['result'] as List<dynamic>;
+          if (records.isNotEmpty) {
+            final datas = (records[0] as Map<String, dynamic>)['datas'];
+            if (datas is String && datas.isNotEmpty) base64Data = datas;
+          }
+        }
+
+        // Si uno no se ha podido descargar, se sigue igual: en el PDF sale
+        // una página que lo dice, en vez de fallar todo por un documento.
+        documents.add({
+          'name': row['name']?.toString() ?? 'Documento',
+          'mimeType': row['mime_type']?.toString(),
+          'base64': base64Data,
+        });
+      }
+    }
+
+    return {
+      'tripName': widget.project.name,
+      'subtitle': _pdfTripDates(),
+      'generatedAt': _pdfNow(),
+      'includeDocuments': includeDocuments,
+      'stages': stages,
+      'documents': documents,
+    };
+  }
+
+  /// "09:00 - 11:00", o solo una de las dos horas si falta la otra. Se
+  /// muestran igual que en la pantalla de la etapa (la hora tal cual está
+  /// guardada), para que el PDF y la app digan siempre lo mismo.
+  static String _pdfTimeRange(dynamic from, dynamic to) {
+    final a = _pdfHour(from);
+    final b = _pdfHour(to);
+    if (a != null && b != null) return '$a - $b';
+    if (a != null) return 'Desde $a';
+    if (b != null) return 'Hasta $b';
+    return '';
+  }
+
+  static String? _pdfHour(dynamic value) {
+    if (value is! String || value.isEmpty) return null;
+    try {
+      final dt = DateTime.parse(value);
+      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _pdfTripDates() {
+    String? fmt(String? iso) {
+      if (iso == null) return null;
+      try {
+        final d = DateTime.parse(iso);
+        return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final start = fmt(widget.project.dateStart);
+    final end = fmt(widget.project.dateEnd);
+    if (start != null && end != null) return 'Del $start al $end';
+    if (start != null) return 'Desde el $start';
+    return null;
+  }
+
+  static String _pdfNow() {
+    final n = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(n.day)}/${two(n.month)}/${n.year} ${two(n.hour)}:${two(n.minute)}';
+  }
+
+  /// Nombre del archivo: "Viaje - <nombre>.pdf", sin caracteres que
+  /// algunos sistemas no admiten en un nombre de archivo.
+  String _pdfFileName(bool includeDocuments) {
+    final clean = widget.project.name
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '-')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final base = clean.isEmpty ? 'Viaje' : 'Viaje - $clean';
+    return includeDocuments ? '$base (con documentos).pdf' : '$base.pdf';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Etapas y tareas'),
         actions: [
+          // Solo en la versión web: el PDF se genera con web/trip_pdf.js,
+          // que no existe en la app nativa.
+          if (kIsWeb)
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf),
+              tooltip: 'Generar PDF',
+              onPressed: (_isLoading || _columns.isEmpty) ? null : _onGeneratePdfPressed,
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: Icon(

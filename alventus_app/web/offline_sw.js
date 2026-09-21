@@ -57,7 +57,7 @@
 // tocarlas aquí -- ver pwa-status.md para el porqué de este último
 // caso concreto.
 
-const CACHE_NAME = 'alventus-offline-v3';
+const CACHE_NAME = 'alventus-offline-v4';
 
 // Rutas relativas a la carpeta donde vive este propio archivo (que es
 // la misma carpeta donde se despliega toda la app), para que funcionen
@@ -71,6 +71,10 @@ const PRECACHE_URLS = [
   'favicon.png',
   'dictation.js',
   'file_saver.js',
+  // Generador del PDF del viaje y la librería que usa. Se precargan para
+  // que "Generar PDF > Etapas y tareas" funcione también sin cobertura.
+  'trip_pdf.js',
+  'pdf-lib.min.js',
   'sqlite3.wasm',
   'sqflite_sw.js',
   'icons/Icon-192.png',
