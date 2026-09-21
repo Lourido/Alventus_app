@@ -6,18 +6,33 @@ import 'dart:js_interop';
 ///
 /// Si algún día esto no compila: revisar primero que el texto entre
 /// comillas de @JS(...) coincide EXACTAMENTE con el nombre de la función
-/// que web/trip_pdf.js deja en `window` (window.buildTripPdf).
+/// que web/trip_pdf.js deja en `window` (window.buildTripPdf, etc.).
 ///
 /// Mismo patrón que lib/widgets/speech/local_dictation.dart y
-/// lib/utils/web_file_opener.dart, que ya compilan y funcionan: una
-/// función @JS() suelta, con tipos simples (textos y una promesa).
+/// lib/utils/web_file_opener.dart, que ya compilan y funcionan: funciones
+/// @JS() sueltas, con tipos simples (textos y promesas).
+///
+/// Va en dos pasos: primero se GENERA (buildTripPdfOnWeb, que puede
+/// tardar) y luego se GUARDA (saveTripPdfOnWeb / downloadTripPdfOnWeb).
+/// Guardar tiene que llamarse directamente desde el onPressed de un botón,
+/// sin ningún await antes: elegir carpeta o abrir el menú de compartir
+/// solo lo permite el navegador en el mismo instante del toque.
 
 @JS('buildTripPdf')
 external JSPromise<JSString> _buildTripPdf(JSString json, JSString fileName);
 
+@JS('saveTripPdf')
+external JSPromise<JSString> _saveTripPdf();
+
+@JS('downloadTripPdf')
+external JSString _downloadTripPdf();
+
+@JS('discardTripPdf')
+external void _discardTripPdf();
+
 /// Genera el PDF con los datos de [json] (ver el formato en
-/// web/trip_pdf.js) y lo descarga en el teléfono con el nombre
-/// [fileName].
+/// web/trip_pdf.js) y lo deja preparado para guardarlo con el nombre
+/// [fileName]. No lo guarda todavía.
 ///
 /// Devuelve 'ok' si ha ido bien, o un texto que empieza por 'error:' con
 /// el motivo. Nunca lanza una excepción.
@@ -28,4 +43,35 @@ Future<String> buildTripPdfOnWeb(String json, String fileName) async {
   } catch (e) {
     return 'error: $e';
   }
+}
+
+/// Guarda el PDF preparado dejando elegir la carpeta. Devuelve 'saved',
+/// 'shared' (menú de compartir; en iPhone, "Guardar en Archivos"),
+/// 'downloaded', 'cancelled' o 'error: ...'. Nunca lanza.
+///
+/// OJO: llamar SIN await previo dentro del onPressed (ver arriba).
+Future<String> saveTripPdfOnWeb() async {
+  try {
+    final result = await _saveTripPdf().toDart;
+    return result.toDart;
+  } catch (e) {
+    return 'error: $e';
+  }
+}
+
+/// Descarga el PDF preparado a la carpeta de descargas. Devuelve
+/// 'downloaded' o 'error: ...'. Nunca lanza.
+Future<String> downloadTripPdfOnWeb() async {
+  try {
+    return _downloadTripPdf().toDart;
+  } catch (e) {
+    return 'error: $e';
+  }
+}
+
+/// Olvida el PDF preparado (libera memoria). Nunca lanza.
+void discardTripPdfOnWeb() {
+  try {
+    _discardTripPdf();
+  } catch (_) {}
 }

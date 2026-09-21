@@ -161,4 +161,14 @@ const List<ChangelogEntry> kChangelog = [
       'Si hoy es un día de viaje, al abrir la app se va directamente a la etapa de hoy con sus tareas.',
     ],
   ),
+  ChangelogEntry(
+    version: 15,
+    date: '21 de septiembre de 2026',
+    changes: [
+      'Al generar un PDF puedes elegir en qué carpeta guardarlo con "Guardar en…". En el iPhone, elige "Guardar en Archivos" y luego la carpeta.',
+      'En el PDF con documentos, los documentos generales del viaje salen antes de las etapas, y los de cada etapa al final de su etapa, cada uno en una página nueva. Al principio hay un índice con la página de cada cosa.',
+      'Los archivos de ruta (GPX, KML...) ya no se incluyen en el PDF.',
+      'Corregido: en un día de viaje, la app abría el viaje pero no entraba en la etapa de ese día. Ahora la etapa se busca por su propia fecha, y funciona también sin cobertura.',
+    ],
+  ),
 ];

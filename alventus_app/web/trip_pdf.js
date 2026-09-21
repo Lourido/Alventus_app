@@ -14,10 +14,11 @@
 //     generar sin cobertura, con los datos guardados.
 //
 // Desde Dart se llama a buildTripPdf(json, nombreDeArchivo) — ver
-// lib/utils/trip_pdf.dart — y aquí se genera el PDF y se descarga con
-// saveBytesAsFile (web/file_saver.js), sin devolver los bytes a Dart: con
-// documentos grandes, pasar varios megas de un lado a otro para nada
-// solo gastaría memoria del teléfono.
+// lib/utils/trip_pdf.dart —, que genera el PDF y lo deja preparado aquí,
+// y después a saveTripPdf() (elegir carpeta) o downloadTripPdf(). Los
+// bytes no pasan por Dart: con documentos grandes, mover varios megas de
+// un lado a otro para nada solo gastaría memoria del teléfono. Ver el
+// final del archivo para el porqué de los dos pasos.
 //
 // pdf-lib no se carga al abrir la app (son ~500 KB que casi nunca hacen
 // falta), sino la primera vez que se genera un PDF. El service worker lo
@@ -61,6 +62,10 @@
   var ANCHO_UTIL = ANCHO - 2 * MARGEN;
   var ARRIBA = ALTO - MARGEN - 18; // deja sitio a la cabecera
   var ABAJO = MARGEN + 12; // deja sitio al pie
+  // Líneas del índice por página: con 17 pt por línea y 6 pt de aire antes
+  // de cada etapa, 28 caben siempre, incluso en el peor caso (todo etapas):
+  // 28 * 23 = 644 pt de los ~660 que quedan bajo el título.
+  var LINEAS_POR_PAGINA_INDICE = 28;
 
   // ---------------------------------------------------------------------
   // Texto
@@ -228,6 +233,16 @@
     return m ? m[1].toLowerCase() : '';
   }
 
+  // Los archivos de ruta (GPX, KML...) no van en el PDF: no se pueden
+  // leer impresos y el usuario los tiene aparte, en "Archivos de ruta".
+  // La app ya no los manda; esto es solo por si acaso.
+  var EXTENSIONES_DE_RUTA = ['gpx', 'kml', 'kmz', 'tcx', 'fit', 'geojson'];
+  function sinRutas(documentos) {
+    return documentos.filter(function (d) {
+      return d && EXTENSIONES_DE_RUTA.indexOf(extensionDe(d.name)) < 0;
+    });
+  }
+
   function tipoDeDocumento(doc) {
     var mime = (doc.mimeType || '').toLowerCase();
     var ext = extensionDe(doc.name);
@@ -281,11 +296,49 @@
       escritor.texto('Generado el ' + datos.generatedAt, { tam: 10, color: rgb(0.5, 0.5, 0.5) });
     }
 
-    // --- Etapas: cada una empieza en página nueva ----------------------
+    // --- Qué documentos van y dónde -------------------------------------
+    // Los documentos generales del viaje (los de "Datos generales") van
+    // ANTES de las etapas; los de cada etapa, al final de SU etapa. Cada
+    // documento empieza siempre en una página nueva. Los archivos de ruta
+    // (GPX, KML...) no se incluyen nunca.
+    var incluir = !!datos.includeDocuments;
     var etapas = datos.stages || [];
+    var generales = incluir ? sinRutas(datos.generalDocuments || datos.documents || []) : [];
+    var docsDeEtapa = etapas.map(function (e) {
+      return incluir ? sinRutas(e.documents || []) : [];
+    });
+    var hayDocumentos = generales.length > 0 ||
+      docsDeEtapa.some(function (l) { return l.length > 0; });
+
+    // --- Índice (solo con documentos) -----------------------------------
+    // Se reservan aquí sus páginas y se rellenan al final, cuando ya se
+    // sabe en qué página empieza cada cosa.
+    var indice = [];
+    var paginasIndice = [];
+    if (hayDocumentos) {
+      var lineasIndice = (generales.length > 0 ? 1 + generales.length : 0) + etapas.length +
+        docsDeEtapa.reduce(function (n, l) { return n + l.length; }, 0);
+      var numPaginasIndice = Math.max(1, Math.ceil(lineasIndice / LINEAS_POR_PAGINA_INDICE));
+      for (var r = 0; r < numPaginasIndice; r++) {
+        escritor.paginaNueva();
+        paginasIndice.push(doc.getPageCount() - 1);
+      }
+    }
+
+    // --- Documentos generales del viaje ---------------------------------
+    if (generales.length > 0) {
+      indice.push({ texto: 'Documentos del viaje', nivel: 0, pagina: doc.getPageCount() + 1 });
+      for (var g = 0; g < generales.length; g++) {
+        indice.push({ texto: generales[g].name || 'Documento', nivel: 1, pagina: doc.getPageCount() + 1 });
+        await incluirDocumento(doc, generales[g], fuentes, limpiar, rgb, cabecera, paginasPropias);
+      }
+    }
+
+    // --- Etapas: cada una empieza en página nueva ----------------------
     for (var s = 0; s < etapas.length; s++) {
       var etapa = etapas[s];
       escritor.paginaNueva();
+      indice.push({ texto: etapa.title || 'Etapa', nivel: 0, pagina: doc.getPageCount() });
       escritor.texto(etapa.title || 'Etapa', { negrita: true, tam: 18 });
       if (etapa.subtitle) {
         escritor.texto(etapa.subtitle, { tam: 11, color: rgb(0.4, 0.4, 0.4) });
@@ -309,24 +362,28 @@
         }
         escritor.espacio(8);
       }
+
+      // Documentos de esta etapa, al final de la etapa.
+      var propios = docsDeEtapa[s];
+      if (propios.length > 0) {
+        escritor.espacio(6);
+        escritor.texto('Documentos de esta etapa (en las páginas siguientes):', {
+          cursiva: true, tam: 10, color: rgb(0.45, 0.45, 0.45),
+        });
+        for (var k = 0; k < propios.length; k++) {
+          escritor.texto('- ' + (propios[k].name || 'Documento'), {
+            tam: 10, sangria: 10, color: rgb(0.45, 0.45, 0.45),
+          });
+        }
+      }
+      for (var d = 0; d < propios.length; d++) {
+        indice.push({ texto: propios[d].name || 'Documento', nivel: 1, pagina: doc.getPageCount() + 1 });
+        await incluirDocumento(doc, propios[d], fuentes, limpiar, rgb, cabecera, paginasPropias);
+      }
     }
 
-    // --- Documentos: cada uno empieza en página nueva -------------------
-    var documentos = datos.includeDocuments ? (datos.documents || []) : [];
-    if (documentos.length > 0) {
-      // Índice: se rellena al final, cuando ya se sabe en qué página
-      // empieza cada documento.
-      escritor.paginaNueva();
-      var paginaIndice = doc.getPageCount() - 1;
-      var inicios = [];
-
-      for (var d = 0; d < documentos.length; d++) {
-        var documento = documentos[d];
-        inicios.push(doc.getPageCount() + 1); // número de página (desde 1)
-        await incluirDocumento(doc, documento, fuentes, limpiar, rgb, cabecera, paginasPropias);
-      }
-
-      escribirIndice(doc.getPage(paginaIndice), documentos, inicios, fuentes, limpiar, rgb);
+    if (paginasIndice.length > 0) {
+      escribirIndice(doc, paginasIndice, indice, fuentes, limpiar, rgb);
     }
 
     // --- Pie con número de página, solo en las páginas propias ----------
@@ -347,29 +404,42 @@
     return doc;
   }
 
-  function escribirIndice(pagina, documentos, inicios, fuentes, limpiar, rgb) {
-    var y = ARRIBA - 18;
-    pagina.drawText('Documentos del viaje', { x: MARGEN, y: y, size: 18, font: fuentes.negrita });
-    y -= 30;
-    for (var i = 0; i < documentos.length; i++) {
-      if (y < ABAJO + 12) break; // listas enormes: lo que no quepa, no se indexa
-      var numero = 'pág. ' + inicios[i];
-      var anchoNumero = fuentes.normal.widthOfTextAtSize(numero, 11);
-      var nombre = limpiar(documentos[i].name || 'Documento');
-      var max = ANCHO_UTIL - anchoNumero - 16;
-      while (nombre.length > 1 && fuentes.normal.widthOfTextAtSize(nombre, 11) > max) {
-        nombre = nombre.slice(0, -2) + '…';
-        nombre = nombre.replace(/……$/, '…');
-      }
-      pagina.drawText((i + 1) + '. ' + nombre, { x: MARGEN, y: y, size: 11, font: fuentes.normal });
-      pagina.drawText(numero, {
-        x: ANCHO - MARGEN - anchoNumero,
-        y: y,
-        size: 11,
-        font: fuentes.normal,
-        color: rgb(0.4, 0.4, 0.4),
+  // Índice: cada etapa (en negrita) con sus documentos debajo, y delante
+  // los documentos generales del viaje. Si no cabe en una página, sigue en
+  // las siguientes (ya reservadas; ver LINEAS_POR_PAGINA_INDICE).
+  function escribirIndice(doc, paginasIndice, entradas, fuentes, limpiar, rgb) {
+    for (var p = 0; p < paginasIndice.length; p++) {
+      var pagina = doc.getPage(paginasIndice[p]);
+      var y = ARRIBA - 18;
+      pagina.drawText(p === 0 ? 'Índice' : 'Índice (continuación)', {
+        x: MARGEN, y: y, size: 18, font: fuentes.negrita,
       });
-      y -= 18;
+      y -= 30;
+      var desde = p * LINEAS_POR_PAGINA_INDICE;
+      var hasta = Math.min(entradas.length, desde + LINEAS_POR_PAGINA_INDICE);
+      for (var i = desde; i < hasta; i++) {
+        var e = entradas[i];
+        var fuente = e.nivel === 0 ? fuentes.negrita : fuentes.normal;
+        var sangria = e.nivel === 0 ? 0 : 16;
+        var numero = 'pág. ' + e.pagina;
+        var anchoNumero = fuentes.normal.widthOfTextAtSize(numero, 11);
+        var nombre = limpiar(e.texto);
+        var max = ANCHO_UTIL - sangria - anchoNumero - 16;
+        while (nombre.length > 1 && fuente.widthOfTextAtSize(nombre, 11) > max) {
+          nombre = nombre.slice(0, -2) + '…';
+          nombre = nombre.replace(/……$/, '…');
+        }
+        if (e.nivel === 0 && i > desde) y -= 6; // aire antes de cada etapa
+        pagina.drawText(nombre, { x: MARGEN + sangria, y: y, size: 11, font: fuente });
+        pagina.drawText(numero, {
+          x: ANCHO - MARGEN - anchoNumero,
+          y: y,
+          size: 11,
+          font: fuentes.normal,
+          color: rgb(0.4, 0.4, 0.4),
+        });
+        y -= 17;
+      }
     }
   }
 
@@ -486,21 +556,135 @@
       fuentes, limpiar, rgb, cabecera, paginasPropias);
   }
 
-  // Punto de entrada desde Dart. Devuelve 'ok' o 'error: <motivo>'
-  // (nunca lanza: así el lado de Dart solo tiene que mirar el texto).
+  // ---------------------------------------------------------------------
+  // Entrada desde Dart y guardado
+  // ---------------------------------------------------------------------
+  //
+  // Va en DOS pasos para que el usuario pueda elegir la carpeta:
+  //
+  //  1. buildTripPdf(json, nombre) genera el PDF y lo deja preparado aquí
+  //     (no lo descarga). Puede tardar: descarga documentos, etc.
+  //  2. Luego la app pregunta dónde guardarlo, y el botón llama a
+  //     saveTripPdf() o downloadTripPdf().
+  //
+  // Por qué así: elegir carpeta (showSaveFilePicker) o abrir el menú de
+  // compartir del iPhone ("Guardar en Archivos", navigator.share) solo lo
+  // permite el navegador justo al tocar un botón. Si se hiciera al final
+  // de la generación, ya habría pasado el "toque" y el navegador lo
+  // bloquearía. Por eso saveTripPdf pide la carpeta ANTES de su primer
+  // await: tiene que ocurrir dentro del propio toque.
+
+  var preparado = null; // { bytes: Uint8Array, nombre: String }
+
   window.buildTripPdf = async function (json, nombreArchivo) {
     try {
+      preparado = null;
       var datos = JSON.parse(json);
       var doc = await generar(datos);
-      var base64 = await doc.saveAsBase64();
-      if (typeof window.saveBytesAsFile !== 'function') {
-        return 'error: no está disponible la descarga de archivos';
-      }
-      var ok = window.saveBytesAsFile(base64, 'application/pdf', nombreArchivo || 'viaje.pdf');
-      return ok ? 'ok' : 'error: el navegador no ha permitido descargar el PDF';
+      var bytes = await doc.save();
+      preparado = { bytes: bytes, nombre: nombreArchivo || 'viaje.pdf' };
+      return 'ok';
     } catch (e) {
       console.error('buildTripPdf:', e);
       return 'error: ' + ((e && e.message) || String(e));
     }
+  };
+
+  function descargar() {
+    var blob = new Blob([preparado.bytes], { type: 'application/pdf' });
+    var url = URL.createObjectURL(blob);
+    var enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = preparado.nombre;
+    enlace.rel = 'noopener';
+    document.body.appendChild(enlace);
+    enlace.click();
+    document.body.removeChild(enlace);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    return 'downloaded';
+  }
+
+  function esCancelacion(e) {
+    return e && (e.name === 'AbortError');
+  }
+
+  // Guardar eligiendo carpeta. Devuelve 'saved' (guardado en la carpeta
+  // elegida), 'shared' (se ha usado el menú de compartir: en iPhone,
+  // "Guardar en Archivos"), 'downloaded' (este navegador no deja elegir
+  // carpeta: va a Descargas), 'cancelled' o 'error: <motivo>'.
+  window.saveTripPdf = async function () {
+    if (!preparado) return 'error: no hay ningún PDF preparado';
+    try {
+      // a) Ordenadores y Android con Chrome/Edge modernos: el diálogo de
+      //    "Guardar como" del sistema, con elección de carpeta.
+      if (typeof window.showSaveFilePicker === 'function') {
+        var pedirCarpeta;
+        try {
+          pedirCarpeta = window.showSaveFilePicker({
+            suggestedName: preparado.nombre,
+            types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }],
+          });
+        } catch (e) {
+          pedirCarpeta = null; // no lo permite aquí: se prueba lo siguiente
+        }
+        if (pedirCarpeta) {
+          try {
+            var destino = await pedirCarpeta;
+            var escritura = await destino.createWritable();
+            await escritura.write(preparado.bytes);
+            await escritura.close();
+            return 'saved';
+          } catch (e) {
+            if (esCancelacion(e)) return 'cancelled';
+            // No ha dejado (permisos, carpeta protegida...): descarga normal.
+            console.warn('showSaveFilePicker:', e);
+            return descargar();
+          }
+        }
+      }
+
+      // b) iPhone (y muchos Android): el menú de compartir, que tiene
+      //    "Guardar en Archivos" para elegir la carpeta.
+      var archivo = null;
+      try {
+        archivo = new File([preparado.bytes], preparado.nombre, { type: 'application/pdf' });
+      } catch (e) {
+        archivo = null;
+      }
+      if (archivo && navigator.canShare && navigator.share &&
+          navigator.canShare({ files: [archivo] })) {
+        var compartir = navigator.share({ files: [archivo], title: preparado.nombre });
+        try {
+          await compartir;
+          return 'shared';
+        } catch (e) {
+          if (esCancelacion(e)) return 'cancelled';
+          console.warn('navigator.share:', e);
+          return descargar();
+        }
+      }
+
+      // c) Si no hay nada de lo anterior, descarga normal.
+      return descargar();
+    } catch (e) {
+      console.error('saveTripPdf:', e);
+      return 'error: ' + ((e && e.message) || String(e));
+    }
+  };
+
+  // Descarga directa a la carpeta de descargas, sin preguntar.
+  window.downloadTripPdf = function () {
+    if (!preparado) return 'error: no hay ningún PDF preparado';
+    try {
+      return descargar();
+    } catch (e) {
+      console.error('downloadTripPdf:', e);
+      return 'error: ' + ((e && e.message) || String(e));
+    }
+  };
+
+  // Olvida el PDF preparado (libera la memoria del teléfono).
+  window.discardTripPdf = function () {
+    preparado = null;
   };
 })();

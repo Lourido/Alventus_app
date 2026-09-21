@@ -13,6 +13,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:crypto/crypto.dart';
 import '../utils/web_file_opener.dart';
 import '../utils/vcard.dart';
+import '../utils/today_stage.dart';
 import '../services/odoo_service.dart';
 import '../services/sync_service.dart';
 import '../services/local_database_service.dart';
@@ -32,7 +33,17 @@ import 'trash_screen.dart';
 class ProjectOverviewScreen extends StatefulWidget {
   final Project project;
 
-  const ProjectOverviewScreen({super.key, required this.project});
+  /// true cuando se abre este viaje al arrancar la app porque hoy es uno
+  /// de sus días (ver splash_screen.dart): entonces salta a la etapa de hoy
+  /// en cuanto se pinta la pantalla, con lo guardado en el teléfono, sin
+  /// esperar a que termine la carga desde Odoo.
+  final bool openTodayStage;
+
+  const ProjectOverviewScreen({
+    super.key,
+    required this.project,
+    this.openTodayStage = false,
+  });
 
   @override
   State<ProjectOverviewScreen> createState() => _ProjectOverviewScreenState();
@@ -76,10 +87,19 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     super.initState();
     _dateStart = widget.project.dateStart;
     _dateEnd = widget.project.dateEnd;
-    _loadAll().then((_) {
-      _refreshTripSummary();
-      _maybeJumpToTodayStage();
-    });
+    if (widget.openTodayStage) {
+      // Al arrancar la app: salto inmediato a la etapa de hoy, con los
+      // datos del teléfono (funciona sin cobertura y no hace esperar).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _maybeJumpToTodayStage(useLocalDataOnly: true);
+      });
+      _loadAll().then((_) => _refreshTripSummary());
+    } else {
+      _loadAll().then((_) {
+        _refreshTripSummary();
+        _maybeJumpToTodayStage();
+      });
+    }
   }
 
   Future<void> _loadAll() async {
@@ -190,55 +210,42 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   /// Si hoy es uno de los días del viaje, navega directamente a la etapa
   /// de ese día. La primera vez que se abre este viaje en el día de hoy,
   /// muestra además un mensaje de bienvenida ("¡Aúpa! ¡Buen viaje!").
-  Future<void> _maybeJumpToTodayStage() async {
+  ///
+  /// Qué etapa es "la de hoy" lo decide findTodayStageName
+  /// (utils/today_stage.dart) por la FECHA DE LA ETAPA, no contando días
+  /// desde el inicio del viaje: eso fallaba cuando la fecha de inicio en
+  /// Odoo no cuadraba con las de las etapas, y la app se quedaba en el
+  /// viaje sin entrar en la etapa.
+  Future<void> _maybeJumpToTodayStage({bool useLocalDataOnly = false}) async {
     final prefs = await SharedPreferences.getInstance();
     final notificationsEnabled = prefs.getBool('trip_notifications_enabled') ?? true;
     if (!notificationsEnabled) return;
 
-    final startStr = _dateStart;
-    final endStr = _dateEnd;
-    if (startStr == null || endStr == null) return;
-
-    DateTime start, end;
-    try {
-      start = DateTime.parse(startStr);
-      end = DateTime.parse(endStr);
-    } catch (_) {
-      return;
-    }
-
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final startDay = DateTime(start.year, start.month, start.day);
-    final endDay = DateTime(end.year, end.month, end.day);
 
-    // Caso 1: hoy es uno de los días del propio viaje.
-    if (!today.isBefore(startDay) && !today.isAfter(endDay)) {
-      final dayNumber = today.difference(startDay).inDays + 1;
-
-      // Nombre de repuesto (por si no hay conexión): se reconstruye a mano
-      // igual que antes. Pero si hay conexión, se busca abajo el nombre
-      // REAL de la etapa "Día N" en Odoo, para no perder cambios hechos
-      // directamente allí (renombrarla, cambiarle la fecha del texto...).
-      String stageName = 'Día $dayNumber - '
-          '${today.day.toString().padLeft(2, '0')}/${today.month.toString().padLeft(2, '0')}/${today.year}';
-
-      final hasConnectionToday = await _syncService.checkConnectivity();
-      if (hasConnectionToday) {
-        final todayStagesResult = await _odooService.fetchProjectStages(widget.project.id);
-        if (todayStagesResult['success'] == true) {
-          final todayStages = (todayStagesResult['result'] as List<dynamic>).cast<Map<String, dynamic>>();
-          final todayDayPattern = RegExp('^Día\\s*$dayNumber(\\D|\$)');
-          for (final s in todayStages) {
-            final name = s['name']?.toString() ?? '';
-            if (todayDayPattern.hasMatch(name.trim())) {
-              stageName = name;
-              break;
-            }
-          }
-        }
+    // Caso 1: hoy es el día de una de las etapas del viaje.
+    // Con cobertura (y si no es el arranque de la app), se usan los nombres
+    // REALES de las etapas en Odoo, para no perder cambios hechos allí.
+    List<String>? freshStageNames;
+    if (!useLocalDataOnly && OdooService.serverReachable) {
+      final stagesResult = await _odooService.fetchProjectStages(widget.project.id);
+      if (stagesResult['success'] == true) {
+        freshStageNames = (stagesResult['result'] as List<dynamic>)
+            .map((s) => (s as Map<String, dynamic>)['name']?.toString() ?? '')
+            .where((n) => n.trim().isNotEmpty)
+            .toList();
       }
+    }
 
+    final todayStageName = await findTodayStageName(
+      projectId: widget.project.id,
+      tripStartIso: _dateStart,
+      tripEndIso: _dateEnd,
+      stageNames: freshStageNames,
+    );
+
+    if (todayStageName != null) {
       // Mensaje de bienvenida solo la primera vez que se abre hoy (se
       // recuerda con una clave por viaje + fecha de hoy).
       final todayKey = '${today.year}-${today.month}-${today.day}';
@@ -277,7 +284,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
         MaterialPageRoute(
           builder: (context) => StageTasksScreen(
             project: widget.project,
-            stageName: stageName,
+            stageName: todayStageName,
           ),
         ),
       ).then((_) {
@@ -285,6 +292,16 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       });
       return;
     }
+
+    final startStr = _dateStart;
+    if (startStr == null) return;
+    DateTime start;
+    try {
+      start = DateTime.parse(startStr);
+    } catch (_) {
+      return;
+    }
+    final startDay = DateTime(start.year, start.month, start.day);
 
     // Caso 2: faltan 7 días o menos para empezar el viaje. Solo se avisa
     // una vez por viaje (no una vez al día, como el caso anterior).

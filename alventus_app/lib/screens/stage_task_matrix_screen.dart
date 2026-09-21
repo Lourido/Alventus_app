@@ -344,15 +344,89 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
     // nadie usándolo, se recoge solo.)
     Navigator.of(context, rootNavigator: true).pop();
 
-    if (result == 'ok') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PDF generado'), backgroundColor: Colors.green),
-      );
-    } else {
+    if (result != 'ok') {
       final motivo = result.startsWith('error:') ? result.substring(6).trim() : result;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No se ha podido generar el PDF: $motivo'), backgroundColor: Colors.red),
       );
+      return;
+    }
+
+    await _askWhereToSavePdf();
+  }
+
+  /// El PDF ya está generado: se pregunta dónde guardarlo. Si el usuario
+  /// cancela el selector de carpeta, se le vuelve a preguntar (el PDF
+  /// sigue preparado), hasta que lo guarde o pulse "Cancelar".
+  Future<void> _askWhereToSavePdf() async {
+    while (mounted) {
+      // El guardado se LANZA dentro del propio onPressed (sin await
+      // antes): es lo único que permite el navegador para abrir el
+      // selector de carpeta o el menú de compartir (ver
+      // lib/utils/trip_pdf.dart). Aquí solo se espera su resultado.
+      Future<String>? saving;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('El PDF está listo'),
+          content: const Text(
+            'Pulsa «Guardar en…» para elegir la carpeta donde guardarlo.\n\n'
+            'En el iPhone, en el menú que aparece, elige «Guardar en Archivos» '
+            'y después la carpeta.\n\n'
+            '«Descargar» lo guarda directamente en la carpeta de descargas.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () {
+                saving = downloadTripPdfOnWeb();
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Descargar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                saving = saveTripPdfOnWeb();
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Guardar en…'),
+            ),
+          ],
+        ),
+      );
+
+      final pending = saving;
+      if (pending == null) {
+        discardTripPdfOnWeb();
+        return;
+      }
+
+      final outcome = await pending;
+      if (!mounted) return;
+
+      if (outcome == 'cancelled') continue; // se vuelve a preguntar
+
+      discardTripPdfOnWeb();
+      if (outcome.startsWith('error')) {
+        final motivo = outcome.substring(outcome.indexOf(':') + 1).trim();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se ha podido guardar el PDF: $motivo'), backgroundColor: Colors.red),
+        );
+      } else {
+        final mensaje = switch (outcome) {
+          'saved' => 'PDF guardado',
+          'downloaded' => 'PDF guardado en la carpeta de descargas',
+          _ => 'Hecho',
+        };
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(mensaje), backgroundColor: Colors.green),
+        );
+      }
+      return;
     }
   }
 
@@ -375,6 +449,88 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
     final taskRows = await _localDb.getTasks(projectId);
     final tasksByStage = _groupTasksByStageName(taskRows);
 
+    // Con documentos: nombres de los archivos de ruta, que NO van en el
+    // PDF aunque alguien los haya subido también como documento, y el id
+    // de cada etapa en Odoo, para traer sus documentos.
+    final routeNames = <String>{};
+    final stageIdByName = <String, int>{};
+    if (includeDocuments) {
+      for (final r in await _localDb.getRouteFiles(projectId)) {
+        final n = r['file_name']?.toString().trim().toLowerCase();
+        if (n != null && n.isNotEmpty) routeNames.add(n);
+      }
+      final stagesResult = await _odooService.fetchProjectStages(projectId);
+      if (stagesResult['success'] == true) {
+        for (final st in (stagesResult['result'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+          final id = st['id'];
+          final name = st['name']?.toString();
+          if (id is int && name != null) stageIdByName[name] = id;
+        }
+      }
+    }
+
+    bool isRouteFile(String name) {
+      final lower = name.trim().toLowerCase();
+      final ext = lower.contains('.') ? lower.substring(lower.lastIndexOf('.') + 1) : '';
+      return _routeExtensions.contains(ext) || routeNames.contains(lower);
+    }
+
+    // Documentos generales del viaje (los de "Datos generales").
+    final generalRows = <Map<String, dynamic>>[];
+    // Documentos de cada etapa, por nombre de etapa.
+    final stageRows = <String, List<Map<String, dynamic>>>{};
+    if (includeDocuments) {
+      progress.value = 'Buscando los documentos...';
+      generalRows.addAll((await _localDb.getProjectDocuments(projectId))
+          .where((d) => (d['id'] as int? ?? 0) > 0) // los pendientes aún no están en Odoo
+          .where((d) => !isRouteFile(d['name']?.toString() ?? '')));
+
+      for (final column in _columns) {
+        final stageId = stageIdByName[column.stageName];
+        if (stageId == null) continue;
+        final result = await _odooService.fetchStageAttachments(stageId);
+        if (result['success'] != true) continue;
+        final rows = (result['result'] as List<dynamic>)
+            .cast<Map<String, dynamic>>()
+            .where((d) => !isRouteFile(d['name']?.toString() ?? ''))
+            .toList()
+          // En el orden en que se subieron (Odoo los da del más nuevo al
+          // más antiguo).
+          ..sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
+        if (rows.isNotEmpty) stageRows[column.stageName] = rows;
+      }
+    }
+
+    final totalDocs = generalRows.length +
+        stageRows.values.fold<int>(0, (n, l) => n + l.length);
+    var downloaded = 0;
+
+    Future<Map<String, dynamic>> download(Map<String, dynamic> row, String? mimeType) async {
+      downloaded++;
+      progress.value = 'Descargando documentos ($downloaded de $totalDocs)...';
+      String? base64Data;
+      final result = await _odooService.downloadAttachment(row['id'] as int);
+      if (result['success'] == true) {
+        final records = result['result'] as List<dynamic>;
+        if (records.isNotEmpty) {
+          final datas = (records[0] as Map<String, dynamic>)['datas'];
+          if (datas is String && datas.isNotEmpty) base64Data = datas;
+        }
+      }
+      // Si uno no se ha podido descargar, se sigue igual: en el PDF sale
+      // una página que lo dice, en vez de fallar todo por un documento.
+      return {
+        'name': row['name']?.toString() ?? 'Documento',
+        'mimeType': mimeType,
+        'base64': base64Data,
+      };
+    }
+
+    final generalDocuments = <Map<String, dynamic>>[];
+    for (final row in generalRows) {
+      generalDocuments.add(await download(row, row['mime_type']?.toString()));
+    }
+
     final stages = <Map<String, dynamic>>[];
     for (final column in _columns) {
       final tasks = List<Map<String, dynamic>>.from(tasksByStage[column.stageName] ?? []);
@@ -384,6 +540,12 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
         if (seqA != seqB) return seqA.compareTo(seqB);
         return (a['id'] as int).compareTo(b['id'] as int);
       });
+
+      final stageDocuments = <Map<String, dynamic>>[];
+      for (final row in stageRows[column.stageName] ?? const <Map<String, dynamic>>[]) {
+        final mime = row['mimetype'];
+        stageDocuments.add(await download(row, mime is String ? mime : null));
+      }
 
       stages.add({
         'title': column.stageName,
@@ -397,37 +559,8 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
               'description': t['description']?.toString(),
             },
         ],
+        'documents': stageDocuments,
       });
-    }
-
-    final documents = <Map<String, dynamic>>[];
-    if (includeDocuments) {
-      final docRows = (await _localDb.getProjectDocuments(projectId))
-          .where((d) => (d['id'] as int? ?? 0) > 0) // los pendientes aún no están en Odoo
-          .toList();
-
-      for (var i = 0; i < docRows.length; i++) {
-        final row = docRows[i];
-        progress.value = 'Descargando documentos (${i + 1} de ${docRows.length})...';
-
-        String? base64Data;
-        final download = await _odooService.downloadAttachment(row['id'] as int);
-        if (download['success'] == true) {
-          final records = download['result'] as List<dynamic>;
-          if (records.isNotEmpty) {
-            final datas = (records[0] as Map<String, dynamic>)['datas'];
-            if (datas is String && datas.isNotEmpty) base64Data = datas;
-          }
-        }
-
-        // Si uno no se ha podido descargar, se sigue igual: en el PDF sale
-        // una página que lo dice, en vez de fallar todo por un documento.
-        documents.add({
-          'name': row['name']?.toString() ?? 'Documento',
-          'mimeType': row['mime_type']?.toString(),
-          'base64': base64Data,
-        });
-      }
     }
 
     return {
@@ -435,10 +568,13 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
       'subtitle': _pdfTripDates(),
       'generatedAt': _pdfNow(),
       'includeDocuments': includeDocuments,
+      'generalDocuments': generalDocuments,
       'stages': stages,
-      'documents': documents,
     };
   }
+
+  /// Extensiones de los archivos de ruta, que no se incluyen en el PDF.
+  static const _routeExtensions = {'gpx', 'kml', 'kmz', 'tcx', 'fit', 'geojson'};
 
   /// "09:00 - 11:00", o solo una de las dos horas si falta la otra. Se
   /// muestran igual que en la pantalla de la etapa (la hora tal cual está

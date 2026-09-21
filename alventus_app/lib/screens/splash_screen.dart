@@ -7,6 +7,7 @@ import '../services/local_database_service.dart';
 import '../services/odoo_service.dart';
 import '../services/storage_service.dart';
 import '../services/sync_service.dart';
+import '../utils/today_stage.dart';
 import '../widgets/update/update_checker.dart';
 import '../widgets/changelog/changelog_dialog.dart';
 import 'login_screen.dart';
@@ -216,18 +217,40 @@ class _SplashScreenState extends State<SplashScreen>
 
       Map<String, dynamic>? todayTrip;
       DateTime? todayTripStart;
+      var todayTripHasStage = false;
 
       for (final row in rows) {
+        final id = row['id'];
+        if (id is! int) continue;
         final start = _parseDay(row['date_start']);
         final end = _parseDay(row['date_end']);
-        if (start == null || end == null) continue;
-        if (today.isBefore(start) || today.isAfter(end)) continue;
 
-        // Si por lo que sea hay dos viajes a la vez, se abre el que
+        // Primero se mira si alguna ETAPA de este viaje es de hoy (por la
+        // fecha de la etapa, que es lo fiable). Si no, vale también que
+        // hoy caiga entre las fechas de inicio y fin del viaje.
+        final hasStage = await findTodayStageName(
+              projectId: id,
+              tripStartIso: row['date_start']?.toString(),
+              tripEndIso: row['date_end']?.toString(),
+            ) !=
+            null;
+        final inRange = start != null &&
+            end != null &&
+            !today.isBefore(start) &&
+            !today.isAfter(end);
+        if (!hasStage && !inRange) continue;
+
+        // Manda el viaje que tiene una etapa hoy; entre iguales, el que
         // empezó más tarde (el más "actual").
-        if (todayTripStart == null || start.isAfter(todayTripStart)) {
+        final better = todayTrip == null ||
+            (hasStage && !todayTripHasStage) ||
+            (hasStage == todayTripHasStage &&
+                start != null &&
+                (todayTripStart == null || start.isAfter(todayTripStart)));
+        if (better) {
           todayTrip = row;
           todayTripStart = start;
+          todayTripHasStage = hasStage;
         }
       }
 
@@ -245,7 +268,12 @@ class _SplashScreenState extends State<SplashScreen>
       );
 
       rootNavigatorKey.currentState?.push(
-        MaterialPageRoute(builder: (context) => ProjectOverviewScreen(project: project)),
+        MaterialPageRoute(
+          builder: (context) => ProjectOverviewScreen(
+            project: project,
+            openTodayStage: true,
+          ),
+        ),
       );
     } catch (e) {
       // Esto es una comodidad, no algo imprescindible: si falla, el
