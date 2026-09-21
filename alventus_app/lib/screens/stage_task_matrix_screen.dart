@@ -261,6 +261,29 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
       'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
 
   Future<void> _onGeneratePdfPressed() async {
+    // El navegador puede tener aún el generador de PDF de antes de la
+    // última actualización (guardado en su caché): con él, el PDF saldría
+    // mal. Se avisa en vez de generarlo.
+    if (!tripPdfScriptIsUpToDate()) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Falta terminar de actualizar la app'),
+          content: const Text(
+            'Cierra la app del todo y vuelve a abrirla con cobertura. '
+            'Después ya podrás generar el PDF.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Entendido'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final includeDocuments = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => SimpleDialog(

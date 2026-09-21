@@ -292,6 +292,14 @@
     escritor.espacio(24);
     var contenido = datos.includeDocuments ? 'Etapas, tareas y documentos' : 'Etapas y tareas';
     escritor.texto(contenido, { tam: 12, color: rgb(0.3, 0.3, 0.3) });
+    if (datos.includeDocuments) {
+      var numDocs = sinRutas(datos.generalDocuments || datos.documents || []).length +
+        (datos.stages || []).reduce(function (n, e) { return n + sinRutas(e.documents || []).length; }, 0);
+      escritor.texto(numDocs === 0
+        ? 'Este viaje no tiene documentos.'
+        : (numDocs === 1 ? '1 documento incluido' : numDocs + ' documentos incluidos'),
+        { tam: 10, color: rgb(0.5, 0.5, 0.5) });
+    }
     if (datos.generatedAt) {
       escritor.texto('Generado el ' + datos.generatedAt, { tam: 10, color: rgb(0.5, 0.5, 0.5) });
     }
@@ -575,6 +583,12 @@
   // await: tiene que ocurrir dentro del propio toque.
 
   var preparado = null; // { bytes: Uint8Array, nombre: String }
+
+  // Versión de este archivo. La app la comprueba antes de generar: si el
+  // navegador tuviera aún una copia vieja, avisa en vez de sacar un PDF
+  // incompleto. Subirla (y la de lib/utils/trip_pdf.dart) si cambia el
+  // formato de los datos.
+  window.tripPdfApiVersion = function () { return 2; };
 
   window.buildTripPdf = async function (json, nombreArchivo) {
     try {

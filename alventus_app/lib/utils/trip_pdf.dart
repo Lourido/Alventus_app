@@ -18,6 +18,24 @@ import 'dart:js_interop';
 /// sin ningún await antes: elegir carpeta o abrir el menú de compartir
 /// solo lo permite el navegador en el mismo instante del toque.
 
+@JS('tripPdfApiVersion')
+external JSNumber _tripPdfApiVersion();
+
+/// Versión de web/trip_pdf.js que necesita esta app. Si el navegador
+/// tiene cargada una copia más vieja (guardada de antes de desplegar), el
+/// PDF saldría mal (p. ej. sin documentos): la pantalla lo comprueba antes
+/// con [tripPdfScriptIsUpToDate] y pide cerrar y abrir la app.
+const int kTripPdfApiVersion = 2;
+
+/// true si el trip_pdf.js cargado es el que espera esta app. Nunca lanza.
+bool tripPdfScriptIsUpToDate() {
+  try {
+    return _tripPdfApiVersion().toDartInt >= kTripPdfApiVersion;
+  } catch (_) {
+    return false; // copia vieja: aún no tenía tripPdfApiVersion
+  }
+}
+
 @JS('buildTripPdf')
 external JSPromise<JSString> _buildTripPdf(JSString json, JSString fileName);
 

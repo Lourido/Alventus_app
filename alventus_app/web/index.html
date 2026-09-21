@@ -49,7 +49,9 @@
        tareas). Es pequeño; la librería pesada que usa, pdf-lib, no se
        carga aquí sino la primera vez que se genera un PDF. Ver
        web/trip_pdf.js. -->
-  <script src="trip_pdf.js"></script>
+  <!-- El "?v=" hay que subirlo cada vez que cambie trip_pdf.js, para
+       que el navegador no use una copia vieja guardada. -->
+  <script src="trip_pdf.js?v=15"></script>
 
   <!-- Registra el service worker propio que permite usar la app sin
        conexión (modo avión). Ver web/offline_sw.js para el porqué y

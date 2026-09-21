@@ -57,7 +57,7 @@
 // tocarlas aquí -- ver pwa-status.md para el porqué de este último
 // caso concreto.
 
-const CACHE_NAME = 'alventus-offline-v4';
+const CACHE_NAME = 'alventus-offline-v5';
 
 // Rutas relativas a la carpeta donde vive este propio archivo (que es
 // la misma carpeta donde se despliega toda la app), para que funcionen
@@ -174,7 +174,23 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
       try {
-        const networkResponse = await fetch(request);
+        // "no-cache": pregunta SIEMPRE al servidor si el archivo ha
+        // cambiado (si no, contesta "sin cambios" y apenas gasta datos).
+        // Sin esto, fetch() usaba la copia de la caché normal del
+        // navegador, y como Odoo marca sus archivos estáticos para
+        // guardarse una semana, tras desplegar seguía usando días el
+        // trip_pdf.js viejo (el PDF salía sin documentos). Las
+        // navegaciones (abrir la app) se dejan tal cual: el navegador ya
+        // las revalida y no admiten cambiar este ajuste.
+        let networkRequest = request;
+        if (request.mode !== 'navigate') {
+          try {
+            networkRequest = new Request(request, { cache: 'no-cache' });
+          } catch (e) {
+            networkRequest = request;
+          }
+        }
+        const networkResponse = await fetch(networkRequest);
         if (networkResponse && networkResponse.ok) {
           const cache = await caches.open(CACHE_NAME);
           cache.put(request, networkResponse.clone());
