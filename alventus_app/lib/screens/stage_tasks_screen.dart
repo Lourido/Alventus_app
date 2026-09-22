@@ -806,6 +806,12 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       context: context,
       initialTime: currentTime ?? TimeOfDay.now(),
       initialEntryMode: TimePickerEntryMode.input,
+      // Siempre en formato 24 horas (13:00, no 1:00 PM): con el de 12
+      // horas no se distinguían las 12:00 de las 00:00.
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
     );
     if (picked == null) return;
 
