@@ -450,19 +450,60 @@ class OdooService {
 
   /// Obtiene las tareas de un proyecto específico
   Future<Map<String, dynamic>> fetchTasks(int projectId, {int limit = 100}) async {
+    return _withAvisoField(
+      ['name', 'description', 'project_id', 'stage_id', 'date_deadline', 'priority', 'fecha_desde', 'fecha_hasta', 'sequence'],
+      (fields) => executeKw(
+        model: 'project.task',
+        method: 'search_read',
+        args: [
+          [
+            ['project_id', '=', projectId],
+          ],
+        ],
+        kwargs: {
+          'fields': fields,
+          'limit': limit,
+          'order': 'fecha_desde asc',
+        },
+      ),
+    );
+  }
+
+  /// Lee tareas pidiendo también el campo aviso_antelacion (el aviso en el
+  /// teléfono). Si Odoo aún no lo tiene (app ya desplegada pero el módulo
+  /// todavía sin actualizar en el servidor), repite la lectura sin él, para
+  /// que la app siga funcionando igual que antes en vez de dejar de
+  /// cargar las tareas.
+  Future<Map<String, dynamic>> _withAvisoField(
+    List<String> fields,
+    Future<Map<String, dynamic>> Function(List<String> fields) read,
+  ) async {
+    final result = await read([...fields, 'aviso_antelacion']);
+    // Se reintenta ante cualquier error de Odoo (no de conexión): el
+    // mensaje exacto de "campo desconocido" cambia según la versión.
+    if (result['success'] != true && result['offline'] != true) {
+      return read(fields);
+    }
+    return result;
+  }
+
+  /// Pone o quita la hora de inicio de una tarea ([fechaDesde] null = sin
+  /// hora) y cuándo avisar ([aviso]: '0', '15', '30' o '60' minutos antes).
+  Future<Map<String, dynamic>> updateTaskStartTime({
+    required int taskId,
+    required String? fechaDesde,
+    required String aviso,
+  }) async {
     return executeKw(
       model: 'project.task',
-      method: 'search_read',
+      method: 'write',
       args: [
-        [
-          ['project_id', '=', projectId],
-        ],
+        [taskId],
+        {
+          'fecha_desde': (fechaDesde == null || fechaDesde.isEmpty) ? false : fechaDesde,
+          'aviso_antelacion': aviso,
+        },
       ],
-      kwargs: {
-        'fields': ['name', 'description', 'project_id', 'stage_id', 'date_deadline', 'priority', 'fecha_desde', 'fecha_hasta', 'sequence'],
-        'limit': limit,
-        'order': 'fecha_desde asc',
-      },
     );
   }
 
@@ -557,16 +598,19 @@ class OdooService {
   }
   /// Obtiene una tarea específica por su ID
   Future<Map<String, dynamic>> fetchTask(int taskId) async {
-    return executeKw(
-      model: 'project.task',
-      method: 'search_read',
-      args: [
-        [['id', '=', taskId]],
-      ],
-      kwargs: {
-        'fields': ['name', 'description', 'project_id', 'stage_id', 'date_deadline', 'priority'],
-        'limit': 1,
-      },
+    return _withAvisoField(
+      ['name', 'description', 'project_id', 'stage_id', 'date_deadline', 'priority', 'fecha_desde', 'fecha_hasta'],
+      (fields) => executeKw(
+        model: 'project.task',
+        method: 'search_read',
+        args: [
+          [['id', '=', taskId]],
+        ],
+        kwargs: {
+          'fields': fields,
+          'limit': 1,
+        },
+      ),
     );
   }
   /// Obtiene los adjuntos de una tarea

@@ -164,6 +164,7 @@ class SyncService {
           'fecha_desde',
           'fecha_hasta',
           'sequence',
+          'aviso_antelacion',
         ]) {
           if (data.containsKey(field)) target[field] = data[field];
         }
@@ -436,6 +437,7 @@ class SyncService {
           'fecha_desde': json['fecha_desde']?.toString(),
           'fecha_hasta': json['fecha_hasta']?.toString(),
           'sequence': json['sequence'] as int? ?? 0,
+          'aviso_antelacion': json['aviso_antelacion'] is String ? json['aviso_antelacion'] : null,
         };
       }).toList();
 
@@ -795,6 +797,21 @@ class SyncService {
           final result = await _odooService.updateTaskSequence(
             taskId: recordId,
             sequence: newSequence,
+          );
+          print('🔄 _syncUpdate: Resultado = ${result['success']}');
+          return _succeeded(result);
+        }
+
+        // Hora de inicio + aviso en el teléfono (detalle de la tarea): va
+        // aparte porque puede QUITAR la hora (fecha_desde vacía), cosa que
+        // updateTask no sabe hacer.
+        if (data.containsKey('aviso_antelacion')) {
+          final fecha = data['fecha_desde']?.toString();
+          print('🔄 _syncUpdate: Hora de inicio de la tarea $recordId = "$fecha"');
+          final result = await _odooService.updateTaskStartTime(
+            taskId: recordId,
+            fechaDesde: (fecha == null || fecha.isEmpty) ? null : fecha,
+            aviso: data['aviso_antelacion'].toString(),
           );
           print('🔄 _syncUpdate: Resultado = ${result['success']}');
           return _succeeded(result);

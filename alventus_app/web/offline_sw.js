@@ -57,7 +57,7 @@
 // tocarlas aquí -- ver pwa-status.md para el porqué de este último
 // caso concreto.
 
-const CACHE_NAME = 'alventus-offline-v5';
+const CACHE_NAME = 'alventus-offline-v6';
 
 // Rutas relativas a la carpeta donde vive este propio archivo (que es
 // la misma carpeta donde se despliega toda la app), para que funcionen
@@ -71,6 +71,7 @@ const PRECACHE_URLS = [
   'favicon.png',
   'dictation.js',
   'file_saver.js',
+  'push.js',
   // Generador del PDF del viaje y la librería que usa. Se precargan para
   // que "Generar PDF > Etapas y tareas" funcione también sin cobertura.
   'trip_pdf.js',
@@ -219,6 +220,75 @@ self.addEventListener('fetch', (event) => {
 
         throw err;
       }
+    })()
+  );
+});
+
+// ---------------------------------------------------------------------
+// AVISOS (notificaciones push)
+// ---------------------------------------------------------------------
+//
+// Los manda Odoo (models/push_notification.py del módulo) cuando llega la
+// hora de una tarea; llegan aquí aunque la app esté cerrada. El contenido
+// es un JSON {title, body, tag, projectId, stageName}.
+//
+// En el iPhone es OBLIGATORIO enseñar un aviso por cada "push" recibido:
+// si no, Apple acaba quitando el permiso. Por eso, si el contenido viniera
+// mal, se enseña igualmente uno genérico.
+
+self.addEventListener('push', (event) => {
+  let datos = {};
+  try {
+    datos = event.data ? event.data.json() : {};
+  } catch (e) {
+    try {
+      datos = { body: event.data ? event.data.text() : '' };
+    } catch (e2) {
+      datos = {};
+    }
+  }
+
+  const titulo = datos.title || 'Alventus';
+  const opciones = {
+    body: datos.body || 'Tienes un aviso de tu viaje.',
+    icon: 'icons/Icon-192.png',
+    badge: 'icons/Icon-maskable-192.png',
+    tag: datos.tag || undefined,
+    // Si llega otro aviso de la misma tarea, que vuelva a sonar.
+    renotify: !!datos.tag,
+    data: {
+      projectId: datos.projectId || null,
+      stageName: datos.stageName || null,
+    },
+  };
+
+  event.waitUntil(self.registration.showNotification(titulo, opciones));
+});
+
+// Al tocar el aviso: se trae la app al frente si ya estaba abierta, o se
+// abre. Al abrirse, la propia app va sola al viaje y a la etapa de hoy
+// (ver splash_screen.dart).
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const ventanas = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const ventana of ventanas) {
+        if ('focus' in ventana) {
+          try {
+            return await ventana.focus();
+          } catch (e) {
+            // No se ha podido traer al frente: se abre una nueva.
+          }
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(self.registration.scope);
+      }
+      return undefined;
     })()
   );
 });

@@ -13,6 +13,7 @@ import '../models/task.dart';
 import '../models/attachment.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
+import '../utils/push_notifications.dart';
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
 
 class TaskDetailScreen extends StatefulWidget {
@@ -163,6 +164,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             priority: _task.priority,
             fechaDesde: _task.fechaDesde,
             fechaHasta: _task.fechaHasta,
+            avisoAntelacion: _task.avisoAntelacion,
           );
         });
 
@@ -221,6 +223,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           priority: _task.priority,
           fechaDesde: _task.fechaDesde,
           fechaHasta: _task.fechaHasta,
+          avisoAntelacion: _task.avisoAntelacion,
         );
       });
 
@@ -231,6 +234,239 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         ),
       );
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // HORA DE INICIO Y AVISO EN EL TELÉFONO
+  // ---------------------------------------------------------------------
+  //
+  // La hora de inicio es el campo fecha_desde de Odoo (fecha y hora), del
+  // que solo interesa la hora: el día es el de la etapa. Si la tarea tiene
+  // hora, Odoo manda un aviso a los teléfonos del viaje a esa hora (o el
+  // rato antes que se elija aquí). Ver lib/utils/push_notifications.dart.
+  // Se guarda al momento, sin esperar al botón "Guardar".
+
+  static const _avisoLabels = {
+    '0': 'Aviso a la hora de inicio',
+    '15': 'Aviso 15 minutos antes',
+    '30': 'Aviso 30 minutos antes',
+    '60': 'Aviso 1 hora antes',
+  };
+
+  /// Día de la tarea: el de la etapa ("Día 3 - 23/09/2026"); si la etapa no
+  /// lleva fecha, el que ya tuviera la tarea; y si tampoco, hoy.
+  DateTime _taskDay() {
+    final match = RegExp(r'(\d{1,2})/(\d{1,2})/(\d{4})').firstMatch(_task.stageName ?? '');
+    if (match != null) {
+      try {
+        return DateTime(int.parse(match.group(3)!), int.parse(match.group(2)!), int.parse(match.group(1)!));
+      } catch (_) {}
+    }
+    final current = _task.fechaDesde;
+    if (current != null && current.isNotEmpty && current != 'false') {
+      try {
+        final dt = DateTime.parse(current);
+        return DateTime(dt.year, dt.month, dt.day);
+      } catch (_) {}
+    }
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  String _formatForOdoo(DateTime day, TimeOfDay time) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${day.year.toString().padLeft(4, '0')}-${two(day.month)}-${two(day.day)} '
+        '${two(time.hour)}:${two(time.minute)}:00';
+  }
+
+  Future<void> _pickStartTime() async {
+    final current = Task.startTimeOf(_task.fechaDesde);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: current != null
+          ? TimeOfDay(hour: current.hour, minute: current.minute)
+          : const TimeOfDay(hour: 9, minute: 0),
+      initialEntryMode: TimePickerEntryMode.input,
+      helpText: 'Hora de inicio',
+    );
+    if (picked == null || !mounted) return;
+    if (picked.hour == 0 && picked.minute == 0) {
+      // Las 00:00 se toman como "sin hora" (ver Task.startTimeOf).
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pon una hora distinta de las 00:00 (por ejemplo, 00:05).'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    final hadTime = current != null;
+    await _saveStartTime(_formatForOdoo(_taskDay(), picked), _task.avisoAntelacion);
+    if (!hadTime) await _remindToEnablePush();
+  }
+
+  Future<void> _clearStartTime() async {
+    await _saveStartTime(null, _task.avisoAntelacion);
+  }
+
+  Future<void> _changeAviso(String? aviso) async {
+    if (aviso == null || aviso == _task.avisoAntelacion) return;
+    await _saveStartTime(_task.fechaDesde, aviso);
+  }
+
+  /// Si se acaba de poner una hora y este teléfono no tiene los avisos
+  /// activados, se le dice dónde activarlos.
+  Future<void> _remindToEnablePush() async {
+    if (!kIsWeb) return;
+    final status = await PushNotifications.status();
+    if (!mounted || status == PushStatus.enabled) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Para que te llegue el aviso a este teléfono, actívalos en la '
+          'campana de la pantalla de inicio.',
+        ),
+        duration: Duration(seconds: 6),
+      ),
+    );
+  }
+
+  Task _taskWithStart(String? fechaDesde, String aviso) {
+    return Task(
+      id: _task.id,
+      name: _task.name,
+      description: _task.description,
+      projectId: _task.projectId,
+      stageName: _task.stageName,
+      deadline: _task.deadline,
+      priority: _task.priority,
+      fechaDesde: fechaDesde,
+      fechaHasta: _task.fechaHasta,
+      avisoAntelacion: aviso,
+    );
+  }
+
+  /// Guarda la hora de inicio ([fechaDesde] null = quitarla) y el aviso.
+  /// Con cobertura va directo a Odoo; sin ella, se guarda en el teléfono y
+  /// se sube después, como el resto de cambios.
+  Future<void> _saveStartTime(String? fechaDesde, String aviso) async {
+    final previous = _task;
+    setState(() => _task = _taskWithStart(fechaDesde, aviso));
+
+    final localValues = {'fecha_desde': fechaDesde, 'aviso_antelacion': aviso};
+
+    var hasConnection = await _syncService.hasRealNetwork();
+    if (hasConnection) {
+      final result = await _odooService.updateTaskStartTime(
+        taskId: _task.id,
+        fechaDesde: fechaDesde,
+        aviso: aviso,
+      );
+      if (!mounted) return;
+      if (result['success'] == true) {
+        await _localDb.updateTask(_task.id, localValues);
+        return;
+      }
+      if (result['offline'] == true) {
+        hasConnection = false;
+      } else {
+        setState(() => _task = previous);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se ha podido guardar la hora: ${result['error'] ?? ''}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
+    // Sin conexión: al teléfono, y a la cola para subirlo luego.
+    await _localDb.updateTask(_task.id, localValues);
+    await _localDb.addPendingChange(
+      model: 'project.task',
+      action: 'update',
+      recordId: _task.id,
+      data: {'fecha_desde': fechaDesde ?? '', 'aviso_antelacion': aviso},
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  Widget _buildStartTimeCard() {
+    final label = Task.startTimeLabel(_task.fechaDesde);
+    if (label == null) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.schedule),
+          title: const Text('Hora de inicio'),
+          subtitle: const Text('Sin hora. Ponle una para recibir un aviso en el teléfono.'),
+          trailing: const Icon(Icons.add_alarm),
+          onTap: _pickStartTime,
+        ),
+      );
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.schedule),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: InkWell(
+                    onTap: _pickStartTime,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Hora de inicio: $label',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit),
+                  tooltip: 'Cambiar la hora',
+                  onPressed: _pickStartTime,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Quitar la hora (y el aviso)',
+                  onPressed: _clearStartTime,
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const Icon(Icons.notifications_active, size: 20, color: Colors.grey),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: DropdownButton<String>(
+                    value: _task.avisoAntelacion,
+                    isExpanded: true,
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      for (final entry in _avisoLabels.entries)
+                        DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+                    ],
+                    onChanged: _changeAviso,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Se llama al intentar salir de la pantalla (botón atrás, gesto del
@@ -828,6 +1064,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Hora de inicio (y aviso en el teléfono): arriba, a la
+                // vista, antes de la descripción (que puede ser larga).
+                _buildStartTimeCard(),
+                const SizedBox(height: 12),
+
                 // Descripción: más espacio por defecto que antes, y los
                 // botones de escuchar/dictar van arriba del campo (no
                 // incrustados dentro) para no quitarle espacio al texto.

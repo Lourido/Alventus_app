@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,6 +11,8 @@ import 'create_trip_screen.dart';
 import 'share_trip_screen.dart';
 import 'remove_trip_screen.dart';
 import 'recover_trip_screen.dart';
+import '../utils/push_notifications.dart';
+import '../widgets/push_settings_tile.dart';
 
 class HomeScreen extends StatelessWidget {
   final int uid;
@@ -17,8 +20,18 @@ class HomeScreen extends StatelessWidget {
 
   const HomeScreen({super.key, required this.uid, this.userName = 'Usuario'});
 
+  // Una vez por arranque de la app (y ya con la sesión iniciada): si este
+  // teléfono tiene los avisos activados, se vuelve a mandar su suscripción
+  // a Odoo para tener al día la zona horaria y el usuario. Ver
+  // PushNotifications.refreshRegistration.
+  static bool _pushRegistrationRefreshed = false;
+
   @override
   Widget build(BuildContext context) {
+    if (kIsWeb && !_pushRegistrationRefreshed) {
+      _pushRegistrationRefreshed = true;
+      PushNotifications.refreshRegistration();
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Alventus & Años Luz'),
@@ -277,16 +290,30 @@ class HomeScreen extends StatelessWidget {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: const Text('Avisos de viaje'),
-              content: SwitchListTile(
-                title: const Text('Avisar al abrir un viaje'),
-                subtitle: const Text(
-                  'Si hoy es un día de viaje, al abrir la app va directo a la '
-                  'etapa de hoy. También avisa cuando falta poco para salir.',
+              contentPadding: const EdgeInsets.fromLTRB(8, 20, 8, 0),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SwitchListTile(
+                      title: const Text('Avisar al abrir un viaje'),
+                      subtitle: const Text(
+                        'Si hoy es un día de viaje, al abrir la app va directo a la '
+                        'etapa de hoy. También avisa cuando falta poco para salir.',
+                      ),
+                      value: currentValue,
+                      onChanged: (value) {
+                        setDialogState(() => currentValue = value);
+                      },
+                    ),
+                    // Notificaciones push (solo en la versión web / PWA).
+                    if (kIsWeb) ...[
+                      const Divider(height: 24),
+                      const PushSettingsTile(),
+                    ],
+                  ],
                 ),
-                value: currentValue,
-                onChanged: (value) {
-                  setDialogState(() => currentValue = value);
-                },
               ),
               actions: [
                 TextButton(
@@ -333,6 +360,14 @@ class HomeScreen extends StatelessWidget {
     );
 
     if (confirmed != true) return;
+
+    // Este teléfono deja de recibir los avisos de este usuario. Sin
+    // cobertura no se espera más de unos segundos: no debe impedir salir.
+    if (kIsWeb) {
+      try {
+        await PushNotifications.unregisterOnLogout().timeout(const Duration(seconds: 6));
+      } catch (_) {}
+    }
 
     await OdooService().logout();
 

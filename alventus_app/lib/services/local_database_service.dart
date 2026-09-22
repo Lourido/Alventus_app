@@ -35,7 +35,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -72,6 +72,7 @@ class LocalDatabaseService {
         fecha_desde TEXT,
         fecha_hasta TEXT,
         sequence INTEGER DEFAULT 0,
+        aviso_antelacion TEXT,
         last_sync TEXT,
         FOREIGN KEY (project_id) REFERENCES projects (id)
       )
@@ -344,6 +345,17 @@ class LocalDatabaseService {
       }
     }
 
+    if (oldVersion < 11) {
+      // Cuánto antes avisar en el teléfono de una tarea con hora de inicio
+      // ('0', '15', '30', '60' minutos). Ver lib/utils/push_notifications.dart.
+      try {
+        await db.execute('ALTER TABLE tasks ADD COLUMN aviso_antelacion TEXT');
+        print('✅ Columna aviso_antelacion añadida a tasks');
+      } catch (e) {
+        print('⚠️ No se pudo añadir aviso_antelacion (puede que ya exista): $e');
+      }
+    }
+
     if (oldVersion < 9) {
       try {
         await db.execute('''
@@ -479,6 +491,7 @@ class LocalDatabaseService {
           'fecha_desde': task['fecha_desde'],
           'fecha_hasta': task['fecha_hasta'],
           'sequence': task['sequence'] ?? 0,
+          'aviso_antelacion': task['aviso_antelacion'],
           'last_sync': DateTime.now().toIso8601String(),
         },
         conflictAlgorithm: ConflictAlgorithm.replace,

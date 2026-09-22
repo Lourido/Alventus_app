@@ -171,4 +171,13 @@ const List<ChangelogEntry> kChangelog = [
       'Corregido: en un día de viaje, la app abría el viaje pero no entraba en la etapa de ese día. Ahora la etapa se busca por su propia fecha, y funciona también sin cobertura.',
     ],
   ),
+  ChangelogEntry(
+    version: 16,
+    date: '22 de septiembre de 2026',
+    changes: [
+      'Avisos en el teléfono: si una tarea tiene hora de inicio, te llega un aviso a esa hora, aunque la app esté cerrada. Actívalos en la campana de la pantalla de inicio (en el iPhone, con la app añadida a la pantalla de inicio).',
+      'Dentro de cada tarea puedes poner su hora de inicio y elegir cuándo avisar: a la hora, 15 o 30 minutos antes, o 1 hora antes.',
+      'En la lista de tareas de una etapa se ve la hora de inicio de las tareas que la tienen.',
+    ],
+  ),
 ];

@@ -415,6 +415,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       priority: row['priority'] as String? ?? '0',
       fechaDesde: row['fecha_desde'] as String?,
       fechaHasta: row['fecha_hasta'] as String?,
+      avisoAntelacion: row['aviso_antelacion'] as String?,
     );
   }
 
@@ -1498,6 +1499,23 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     );
   }
 
+  Widget? _startTimeSubtitle(Task task) {
+    final label = Task.startTimeLabel(task.fechaDesde);
+    if (label == null) return null;
+    return Row(
+      children: [
+        const Icon(Icons.notifications_active, size: 16),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            '$label · ${Task.avisoShortLabel(task.avisoAntelacion)}',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Construye la tarjeta de una tarea. El [trailing] lo decide quien la
   /// use: en web son botones de subir/bajar, y en la app nativa es el
   /// icono de arrastrar.
@@ -1512,6 +1530,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
         // Sin icono a la izquierda: así el nombre de la tarea
         // aprovecha todo el ancho del recuadro.
         title: Text(task.name),
+        // Si la tarea tiene hora de inicio, se ve aquí con su aviso.
+        subtitle: _startTimeSubtitle(task),
         trailing: trailing,
         onTap: () {
           Navigator.push(
