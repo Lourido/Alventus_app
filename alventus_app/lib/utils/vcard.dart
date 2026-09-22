@@ -23,8 +23,11 @@ String buildVCard(List<ReferenceContact> contacts) {
     if (contact.email != null && contact.email!.isNotEmpty) {
       buffer.write('EMAIL:${_escape(contact.email!)}\r\n');
     }
-    if (contact.city != null && contact.city!.isNotEmpty) {
-      buffer.write('ADR;TYPE=HOME:;;;${_escape(contact.city!)};;;\r\n');
+    if (contact.addressLine != null) {
+      // ADR: apartado; extendida; calle; ciudad; región; código postal; país.
+      String f(String? v) => _escape(v ?? '');
+      buffer.write('ADR;TYPE=HOME:;${f(contact.street2)};${f(contact.street)};'
+          '${f(contact.city)};;${f(contact.zip)};${f(contact.countryName)}\r\n');
     }
     if (contact.comment != null && contact.comment!.isNotEmpty) {
       buffer.write('NOTE:${_escape(contact.comment!)}\r\n');

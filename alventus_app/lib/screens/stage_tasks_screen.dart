@@ -1504,7 +1504,10 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     if (label == null) return null;
     return Row(
       children: [
-        const Icon(Icons.notifications_active, size: 16),
+        Icon(
+          task.avisoAntelacion == 'no' ? Icons.notifications_off : Icons.notifications_active,
+          size: 16,
+        ),
         const SizedBox(width: 4),
         Flexible(
           child: Text(

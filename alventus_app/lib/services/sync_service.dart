@@ -540,7 +540,13 @@ class SyncService {
           'name': json['name']?.toString() ?? '',
           'phone': json['phone'] == false ? null : json['phone']?.toString(),
           'email': json['email'] == false ? null : json['email']?.toString(),
+          'street': json['street'] == false ? null : json['street']?.toString(),
+          'street2': json['street2'] == false ? null : json['street2']?.toString(),
+          'zip': json['zip'] == false ? null : json['zip']?.toString(),
           'city': json['city'] == false ? null : json['city']?.toString(),
+          // Odoo manda el país como [id, nombre].
+          'country_id': json['country_id'] is List ? (json['country_id'] as List)[0] : null,
+          'country_name': json['country_id'] is List ? (json['country_id'] as List)[1]?.toString() : null,
           'comment': json['comment'] == false ? null : json['comment']?.toString(),
         };
       }).toList();
@@ -733,11 +739,21 @@ class SyncService {
 
         if (projectId == 0 || name.isEmpty) return false;
 
+        String? text(String key) {
+          final v = data[key]?.toString();
+          return (v != null && v.isNotEmpty) ? v : null;
+        }
+
         final result = await _odooService.createAndLinkReferenceContact(
           projectId: projectId,
           name: name,
           phone: (phone != null && phone.isNotEmpty) ? phone : null,
           email: (email != null && email.isNotEmpty) ? email : null,
+          street: text('street'),
+          street2: text('street2'),
+          zip: text('zip'),
+          city: text('city'),
+          countryId: int.tryParse(data['country_id']?.toString() ?? ''),
         );
 
         if (result['success'] == true && tempId != null) {

@@ -12,8 +12,8 @@ class Task {
   final String? fechaHasta;
 
   /// Cuánto antes de la hora de inicio llega el aviso al teléfono, en
-  /// minutos: '0' (a la hora), '15', '30' o '60'. Campo aviso_antelacion
-  /// de Odoo.
+  /// minutos: '0' (a la hora), '15', '30' o '60'; 'no' = la tarea tiene
+  /// hora pero sin aviso. Campo aviso_antelacion de Odoo.
   final String avisoAntelacion;
 
   Task({
@@ -31,7 +31,7 @@ class Task {
 
   /// Valores válidos del aviso; cualquier otra cosa (vacío, false de Odoo,
   /// null...) se toma como '0' (a la hora de inicio).
-  static const avisoOptions = ['0', '15', '30', '60'];
+  static const avisoOptions = ['0', '15', '30', '60', 'no'];
 
   static String normalizeAviso(dynamic value) {
     final s = value?.toString() ?? '';
@@ -69,6 +69,8 @@ class Task {
         return 'aviso 30 min antes';
       case '60':
         return 'aviso 1 h antes';
+      case 'no':
+        return 'sin aviso';
       default:
         return 'aviso a la hora';
     }

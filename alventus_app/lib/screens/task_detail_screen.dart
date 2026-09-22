@@ -251,6 +251,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     '15': 'Aviso 15 minutos antes',
     '30': 'Aviso 30 minutos antes',
     '60': 'Aviso 1 hora antes',
+    'no': 'Sin aviso (solo la hora)',
   };
 
   /// Día de la tarea: el de la etapa ("Día 3 - 23/09/2026"); si la etapa no
@@ -364,6 +365,24 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       );
       if (!mounted) return;
       if (result['success'] == true) {
+        if (result['avisoNotSaved'] == true) {
+          // Odoo aún no conoce el campo del aviso: el módulo no se ha
+          // actualizado en el servidor. La hora sí se ha guardado.
+          await _localDb.updateTask(_task.id, {'fecha_desde': fechaDesde});
+          if (!mounted) return;
+          setState(() => _task = _taskWithStart(fechaDesde, previous.avisoAntelacion));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Hora guardada, pero el aviso no: falta actualizar el módulo '
+                'de Alventus en el servidor de Odoo.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 6),
+            ),
+          );
+          return;
+        }
         await _localDb.updateTask(_task.id, localValues);
         return;
       }
@@ -447,7 +466,13 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             ),
             Row(
               children: [
-                const Icon(Icons.notifications_active, size: 20, color: Colors.grey),
+                Icon(
+                  _task.avisoAntelacion == 'no'
+                      ? Icons.notifications_off
+                      : Icons.notifications_active,
+                  size: 20,
+                  color: Colors.grey,
+                ),
                 const SizedBox(width: 20),
                 Expanded(
                   child: DropdownButton<String>(

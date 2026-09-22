@@ -180,4 +180,13 @@ const List<ChangelogEntry> kChangelog = [
       'En la lista de tareas de una etapa se ve la hora de inicio de las tareas que la tienen.',
     ],
   ),
+  ChangelogEntry(
+    version: 17,
+    date: '22 de septiembre de 2026',
+    changes: [
+      'En cada tarea puedes elegir "Sin aviso": la tarea conserva su hora de inicio pero no manda aviso al teléfono. Con la X quitas la hora y el aviso a la vez.',
+      'Contactos de referencia: ya no se puede añadir a un viaje un contacto con el mismo teléfono que otro que ya esté.',
+      'Contactos de referencia: ahora tienen dirección postal completa (calle, piso, código postal, ciudad y país). Toca un contacto para ver todos sus datos y editarlos.',
+    ],
+  ),
 ];

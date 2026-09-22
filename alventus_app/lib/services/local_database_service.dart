@@ -35,7 +35,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -103,7 +103,12 @@ class LocalDatabaseService {
         name TEXT NOT NULL,
         phone TEXT,
         email TEXT,
+        street TEXT,
+        street2 TEXT,
+        zip TEXT,
         city TEXT,
+        country_id INTEGER,
+        country_name TEXT,
         comment TEXT,
         last_sync TEXT,
         FOREIGN KEY (project_id) REFERENCES projects (id)
@@ -342,6 +347,23 @@ class LocalDatabaseService {
         print('✅ Columna stage_id añadida a tasks');
       } catch (e) {
         print('⚠️ No se pudo añadir stage_id (puede que ya exista): $e');
+      }
+    }
+
+    if (oldVersion < 12) {
+      // Dirección postal completa (y país) de los contactos de referencia.
+      for (final column in const [
+        'street TEXT',
+        'street2 TEXT',
+        'zip TEXT',
+        'country_id INTEGER',
+        'country_name TEXT',
+      ]) {
+        try {
+          await db.execute('ALTER TABLE reference_contacts ADD COLUMN $column');
+        } catch (e) {
+          print('⚠️ No se pudo añadir $column a reference_contacts (puede que ya exista): $e');
+        }
       }
     }
 
@@ -772,7 +794,12 @@ class LocalDatabaseService {
           'name': c['name'] ?? '',
           'phone': c['phone'],
           'email': c['email'],
+          'street': c['street'],
+          'street2': c['street2'],
+          'zip': c['zip'],
           'city': c['city'],
+          'country_id': c['country_id'],
+          'country_name': c['country_name'],
           'comment': c['comment'],
           'last_sync': DateTime.now().toIso8601String(),
         },
@@ -804,6 +831,12 @@ class LocalDatabaseService {
     required String name,
     String? phone,
     String? email,
+    String? street,
+    String? street2,
+    String? zip,
+    String? city,
+    int? countryId,
+    String? countryName,
   }) async {
     final db = await database;
     final tempId = -DateTime.now().millisecondsSinceEpoch;
@@ -814,7 +847,12 @@ class LocalDatabaseService {
       'name': name,
       'phone': phone,
       'email': email,
-      'city': null,
+      'street': street,
+      'street2': street2,
+      'zip': zip,
+      'city': city,
+      'country_id': countryId,
+      'country_name': countryName,
       'comment': null,
       'last_sync': null,
     });
@@ -828,6 +866,11 @@ class LocalDatabaseService {
         'name': name,
         'phone': phone ?? '',
         'email': email ?? '',
+        'street': street ?? '',
+        'street2': street2 ?? '',
+        'zip': zip ?? '',
+        'city': city ?? '',
+        if (countryId != null) 'country_id': countryId.toString(),
       },
     );
   }

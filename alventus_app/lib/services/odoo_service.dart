@@ -489,22 +489,42 @@ class OdooService {
 
   /// Pone o quita la hora de inicio de una tarea ([fechaDesde] null = sin
   /// hora) y cuándo avisar ([aviso]: '0', '15', '30' o '60' minutos antes).
+  ///
+  /// Si Odoo no conoce todavía el campo del aviso (el módulo no se ha
+  /// actualizado en el servidor: error "Invalid field"), guarda al menos la
+  /// hora y lo indica con 'avisoNotSaved': true.
   Future<Map<String, dynamic>> updateTaskStartTime({
     required int taskId,
     required String? fechaDesde,
     required String aviso,
   }) async {
-    return executeKw(
+    final fecha = (fechaDesde == null || fechaDesde.isEmpty) ? false : fechaDesde;
+    final result = await executeKw(
       model: 'project.task',
       method: 'write',
       args: [
         [taskId],
         {
-          'fecha_desde': (fechaDesde == null || fechaDesde.isEmpty) ? false : fechaDesde,
+          'fecha_desde': fecha,
           'aviso_antelacion': aviso,
         },
       ],
     );
+    if (result['success'] == true || result['offline'] == true) return result;
+    if (!(result['error']?.toString() ?? '').contains('aviso_antelacion')) return result;
+
+    final onlyTime = await executeKw(
+      model: 'project.task',
+      method: 'write',
+      args: [
+        [taskId],
+        {'fecha_desde': fecha},
+      ],
+    );
+    if (onlyTime['success'] == true) {
+      return {...onlyTime, 'avisoNotSaved': true};
+    }
+    return onlyTime;
   }
 
   /// Cambia el orden (campo sequence) de una tarea, para poder
@@ -942,7 +962,7 @@ class OdooService {
           ],
         ],
         kwargs: {
-          'fields': ['name', 'email', 'phone', 'city', 'comment'],
+          'fields': ['name', 'email', 'phone', 'street', 'street2', 'zip', 'city', 'country_id', 'comment'],
           'order': 'name asc',
         },
       );
@@ -1000,12 +1020,22 @@ class OdooService {
     String? phone,
     String? email,
     String? comment,
+    String? street,
+    String? street2,
+    String? zip,
+    String? city,
+    int? countryId,
   }) async {
     try {
       final values = <String, dynamic>{'name': name};
       if (phone != null && phone.isNotEmpty) values['phone'] = phone;
       if (email != null && email.isNotEmpty) values['email'] = email;
       if (comment != null && comment.isNotEmpty) values['comment'] = comment;
+      if (street != null && street.isNotEmpty) values['street'] = street;
+      if (street2 != null && street2.isNotEmpty) values['street2'] = street2;
+      if (zip != null && zip.isNotEmpty) values['zip'] = zip;
+      if (city != null && city.isNotEmpty) values['city'] = city;
+      if (countryId != null) values['country_id'] = countryId;
 
       final createResult = await executeKw(
         model: 'res.partner',
@@ -1022,13 +1052,56 @@ class OdooService {
         partnerId: newPartnerId,
       );
 
-      if (linkResult['success'] != true) return linkResult;
+      if (linkResult['success'] != true) {
+        // No se ha podido enlazar (p. ej. Odoo no deja: ya hay un contacto
+        // con ese teléfono en el viaje). Se borra el contacto recién
+        // creado para no dejarlo suelto en Odoo.
+        await executeKw(model: 'res.partner', method: 'unlink', args: [
+          [newPartnerId],
+        ]);
+        return linkResult;
+      }
 
       return {'success': true, 'partner_id': newPartnerId};
     } catch (e) {
       print('❌ Error al crear y enlazar contacto: $e');
       return {'success': false, 'error': 'Error: $e'};
     }
+  }
+
+  /// Cambia los datos de un contacto de referencia (res.partner). [values]
+  /// con los nombres de campo de Odoo; un texto vacío borra ese dato.
+  Future<Map<String, dynamic>> updateReferenceContact({
+    required int partnerId,
+    required Map<String, dynamic> values,
+  }) async {
+    final clean = <String, dynamic>{
+      for (final entry in values.entries)
+        entry.key: (entry.value is String && (entry.value as String).trim().isEmpty)
+            ? false
+            : entry.value,
+    };
+    return executeKw(
+      model: 'res.partner',
+      method: 'write',
+      args: [
+        [partnerId],
+        clean,
+      ],
+    );
+  }
+
+  /// Lista de países de Odoo ({id, name}), para elegir el del contacto.
+  Future<Map<String, dynamic>> fetchCountries() async {
+    return executeKw(
+      model: 'res.country',
+      method: 'search_read',
+      args: [<dynamic>[]],
+      kwargs: {
+        'fields': ['name'],
+        'order': 'name asc',
+      },
+    );
   }
 
   // ===========================================================================

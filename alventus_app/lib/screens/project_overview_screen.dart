@@ -544,7 +544,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
         .map((c) => c.id)
         .toSet();
 
-    final selected = await showDialog<List<Contact>>(
+    final picked = await showDialog<List<Contact>>(
       context: context,
       builder: (dialogContext) {
         // Empieza sin nada marcado: con la agenda completa del teléfono,
@@ -653,7 +653,19 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       },
     );
 
-    if (selected == null || selected.isEmpty || !mounted) return;
+    if (picked == null || picked.isEmpty || !mounted) return;
+
+    // Entre los elegidos, dos con el mismo teléfono solo se importan una
+    // vez (no puede haber dos contactos con el mismo teléfono en un viaje).
+    final seenPhoneKeys = <String>{};
+    final selected = <Contact>[];
+    for (final contact in picked) {
+      final key = ReferenceContact.normalizePhoneKey(
+        contact.phones.isNotEmpty ? contact.phones.first.number : null,
+      );
+      if (key.isNotEmpty && !seenPhoneKeys.add(key)) continue;
+      selected.add(contact);
+    }
 
     final hasConnection = await _syncService.checkConnectivity();
 
@@ -919,84 +931,295 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   /// Comprueba si un contacto del teléfono coincide (por teléfono, email
   /// o nombre) con un contacto de referencia ya vinculado a este viaje.
   bool _isSameContact(Contact deviceContact, ReferenceContact linkedContact) {
-    final linkedPhone = linkedContact.phone != null ? _normalizePhone(linkedContact.phone!) : null;
+    // Teléfono comparado con la misma regla que Odoo (ver
+    // ReferenceContact.normalizePhoneKey): "+34 600..." y "600..." son el
+    // mismo número.
+    final linkedPhone = ReferenceContact.normalizePhoneKey(linkedContact.phone);
     final linkedEmail = linkedContact.email?.toLowerCase().trim();
 
-    if (linkedPhone != null && linkedPhone.isNotEmpty) {
-      final matches = deviceContact.phones.any((p) => _normalizePhone(p.number) == linkedPhone);
+    if (linkedPhone.isNotEmpty) {
+      final matches = deviceContact.phones
+          .any((p) => ReferenceContact.normalizePhoneKey(p.number) == linkedPhone);
       if (matches) return true;
     }
     if (linkedEmail != null && linkedEmail.isNotEmpty) {
       final matches = deviceContact.emails.any((e) => e.address.toLowerCase().trim() == linkedEmail);
       if (matches) return true;
     }
-    if ((linkedPhone == null || linkedPhone.isEmpty) && (linkedEmail == null || linkedEmail.isEmpty)) {
+    if (linkedPhone.isEmpty && (linkedEmail == null || linkedEmail.isEmpty)) {
       return deviceContact.displayName.trim().toLowerCase() == linkedContact.name.trim().toLowerCase();
     }
 
     return false;
   }
 
-  Future<void> _showCreateContactDialog() async {
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final emailController = TextEditingController();
+  // ---------------------------------------------------------------------
+  // CONTACTOS: crear, ver y editar (con dirección postal y país)
+  // ---------------------------------------------------------------------
 
-    final confirmed = await showDialog<bool>(
+  static const _mensajeSinCobertura =
+      'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+
+  /// Si otro contacto de este viaje ya tiene el teléfono [phone], su
+  /// nombre; si no, null. [exceptId]: el contacto que se está editando.
+  /// Odoo hace la misma comprobación (por si se añade desde otro sitio).
+  String? _duplicatePhoneOwner(String? phone, {int? exceptId}) {
+    final key = ReferenceContact.normalizePhoneKey(phone);
+    if (key.isEmpty) return null;
+    for (final c in _contacts) {
+      if (c.id == exceptId) continue;
+      if (ReferenceContact.normalizePhoneKey(c.phone) == key) return c.name;
+    }
+    return null;
+  }
+
+  /// Países de Odoo ({id, name}). Se guardan en el teléfono para poder
+  /// elegir país también sin cobertura.
+  List<Map<String, dynamic>>? _countriesCache;
+
+  Future<List<Map<String, dynamic>>> _loadCountries() async {
+    if (_countriesCache != null && _countriesCache!.isNotEmpty) return _countriesCache!;
+    final prefs = await SharedPreferences.getInstance();
+    List<Map<String, dynamic>> countries = [];
+    final result = await _odooService.fetchCountries();
+    if (result['success'] == true) {
+      countries = (result['result'] as List<dynamic>)
+          .map((c) => {
+                'id': (c as Map<String, dynamic>)['id'] as int,
+                'name': c['name']?.toString() ?? '',
+              })
+          .toList();
+      await prefs.setString('countries_cache', jsonEncode(countries));
+    } else {
+      final saved = prefs.getString('countries_cache');
+      if (saved != null) {
+        countries = (jsonDecode(saved) as List<dynamic>)
+            .map((c) => Map<String, dynamic>.from(c as Map))
+            .toList();
+      }
+    }
+    _countriesCache = countries;
+    return countries;
+  }
+
+  /// Selector de país con buscador. Devuelve el país elegido, un mapa vacío
+  /// si se elige "Sin país", o null si se cancela.
+  Future<Map<String, dynamic>?> _pickCountry() async {
+    final countries = await _loadCountries();
+    if (!mounted) return null;
+    if (countries.isEmpty) {
+      _showSnackBar(_mensajeSinCobertura, isError: true);
+      return null;
+    }
+    return showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Nuevo contacto de referencia'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Nombre', border: OutlineInputBorder()),
+        var filter = '';
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            String plain(String t) => t
+                .toLowerCase()
+                .replaceAll(RegExp('[áàä]'), 'a')
+                .replaceAll(RegExp('[éèë]'), 'e')
+                .replaceAll(RegExp('[íìï]'), 'i')
+                .replaceAll(RegExp('[óòö]'), 'o')
+                .replaceAll(RegExp('[úùü]'), 'u');
+            final visible = filter.isEmpty
+                ? countries
+                : countries.where((c) => plain(c['name'] as String).contains(plain(filter))).toList();
+            return AlertDialog(
+              title: const Text('País'),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 400,
+                child: Column(
+                  children: [
+                    TextField(
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: 'Buscar país',
+                      ),
+                      onChanged: (v) => setDialogState(() => filter = v.trim()),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: visible.length,
+                        itemBuilder: (context, index) {
+                          final c = visible[index];
+                          return ListTile(
+                            title: Text(c['name'] as String),
+                            onTap: () => Navigator.pop(dialogContext, c),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneController,
-                decoration: const InputDecoration(labelText: 'Teléfono (opcional)', border: OutlineInputBorder()),
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: emailController,
-                decoration: const InputDecoration(labelText: 'Email (opcional)', border: OutlineInputBorder()),
-                keyboardType: TextInputType.emailAddress,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Crear'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, <String, dynamic>{}),
+                  child: const Text('Sin país'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
+  }
 
-    if (confirmed != true) return;
-    final name = nameController.text.trim();
-    if (name.isEmpty) return;
+  /// Formulario de contacto (nuevo si [contact] es null). Devuelve los
+  /// valores con nombres de campo de Odoo (más 'country_name'), o null si
+  /// se cancela. No deja guardar con un teléfono repetido en el viaje.
+  Future<Map<String, dynamic>?> _showContactForm({ReferenceContact? contact}) async {
+    final name = TextEditingController(text: contact?.name ?? '');
+    final phone = TextEditingController(text: contact?.phone ?? '');
+    final email = TextEditingController(text: contact?.email ?? '');
+    final street = TextEditingController(text: contact?.street ?? '');
+    final street2 = TextEditingController(text: contact?.street2 ?? '');
+    final zip = TextEditingController(text: contact?.zip ?? '');
+    final city = TextEditingController(text: contact?.city ?? '');
+    int? countryId = contact?.countryId;
+    String? countryName = contact?.countryName;
+    String? error;
 
-    final phone = phoneController.text.trim();
-    final email = emailController.text.trim();
+    InputDecoration deco(String label) =>
+        InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true);
+
+    final values = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(contact == null ? 'Nuevo contacto de referencia' : 'Editar contacto'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(controller: name, decoration: deco('Nombre')),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: phone,
+                      decoration: deco('Teléfono (opcional)'),
+                      keyboardType: TextInputType.phone,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: email,
+                      decoration: deco('Email (opcional)'),
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Dirección postal (opcional)',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    TextField(controller: street, decoration: deco('Calle y número')),
+                    const SizedBox(height: 10),
+                    TextField(controller: street2, decoration: deco('Piso, puerta, otros')),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 110,
+                          child: TextField(controller: zip, decoration: deco('C. postal')),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(child: TextField(controller: city, decoration: deco('Ciudad'))),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.public),
+                      label: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(countryName == null ? 'País' : 'País: $countryName'),
+                      ),
+                      onPressed: () async {
+                        final picked = await _pickCountry();
+                        if (picked == null) return;
+                        setDialogState(() {
+                          countryId = picked['id'] as int?;
+                          countryName = picked['name'] as String?;
+                        });
+                      },
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(error!, style: const TextStyle(color: Colors.red)),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (name.text.trim().isEmpty) {
+                      setDialogState(() => error = 'Pon un nombre al contacto.');
+                      return;
+                    }
+                    final owner = _duplicatePhoneOwner(phone.text, exceptId: contact?.id);
+                    if (owner != null) {
+                      setDialogState(() => error = 'Ya hay un contacto con ese teléfono en este viaje: $owner.');
+                      return;
+                    }
+                    Navigator.pop(dialogContext, {
+                      'name': name.text.trim(),
+                      'phone': phone.text.trim(),
+                      'email': email.text.trim(),
+                      'street': street.text.trim(),
+                      'street2': street2.text.trim(),
+                      'zip': zip.text.trim(),
+                      'city': city.text.trim(),
+                      'country_id': countryId,
+                      'country_name': countryName,
+                    });
+                  },
+                  child: Text(contact == null ? 'Crear' : 'Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    return values;
+  }
+
+  Future<void> _showCreateContactDialog() async {
+    final v = await _showContactForm();
+    if (v == null || !mounted) return;
+
+    String? t(String key) {
+      final s = v[key] as String?;
+      return (s != null && s.isNotEmpty) ? s : null;
+    }
 
     final hasConnection = await _syncService.checkConnectivity();
 
     if (!hasConnection) {
       await _localDb.saveOfflineReferenceContact(
         projectId: widget.project.id,
-        name: name,
-        phone: phone.isNotEmpty ? phone : null,
-        email: email.isNotEmpty ? email : null,
+        name: v['name'] as String,
+        phone: t('phone'),
+        email: t('email'),
+        street: t('street'),
+        street2: t('street2'),
+        zip: t('zip'),
+        city: t('city'),
+        countryId: v['country_id'] as int?,
+        countryName: v['country_name'] as String?,
       );
       if (!mounted) return;
       _showSnackBar('Contacto guardado sin conexión. Se sincronizará cuando haya señal.');
@@ -1006,17 +1229,119 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
 
     final result = await _odooService.createAndLinkReferenceContact(
       projectId: widget.project.id,
-      name: name,
-      phone: phone,
-      email: email,
+      name: v['name'] as String,
+      phone: t('phone'),
+      email: t('email'),
+      street: t('street'),
+      street2: t('street2'),
+      zip: t('zip'),
+      city: t('city'),
+      countryId: v['country_id'] as int?,
     );
 
     if (!mounted) return;
 
     if (result['success'] == true) {
       _loadAll();
+    } else if (result['offline'] == true) {
+      _showSnackBar(_mensajeSinCobertura, isError: true);
     } else {
       _showSnackBar(result['error']?.toString() ?? 'Error al crear el contacto', isError: true);
+    }
+  }
+
+  /// Ficha del contacto (al tocarlo en la lista): todos sus datos, con
+  /// "Editar". Ver funciona sin cobertura; editar necesita cobertura.
+  Future<void> _showContactDetails(ReferenceContact contact) async {
+    Widget line(IconData icon, String? text) {
+      if (text == null || text.isEmpty) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: Colors.grey[700]),
+            const SizedBox(width: 12),
+            Expanded(child: SelectableText(text)),
+          ],
+        ),
+      );
+    }
+
+    final cityLine = [contact.zip, contact.city].whereType<String>().join(' ');
+    final address = [
+      contact.street,
+      contact.street2,
+      if (cityLine.isNotEmpty) cityLine,
+      contact.countryName,
+    ].whereType<String>().where((p) => p.isNotEmpty).join('\n');
+
+    final edit = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(contact.name),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              line(Icons.phone, contact.phone),
+              line(Icons.email, contact.email),
+              line(Icons.home, address.isEmpty ? null : address),
+              line(Icons.notes, contact.comment),
+              if (contact.phone == null && contact.email == null && address.isEmpty)
+                const Text('Sin datos de contacto todavía.', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cerrar'),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.edit),
+            label: const Text('Editar'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+          ),
+        ],
+      ),
+    );
+
+    if (edit != true || !mounted) return;
+
+    // Editar necesita cobertura: se avisa YA, antes de rellenar nada. Un
+    // contacto creado sin conexión (id negativo) aún no está en Odoo.
+    if (_isOffline || contact.id < 0) {
+      _showSnackBar(_mensajeSinCobertura, isError: true);
+      return;
+    }
+
+    final v = await _showContactForm(contact: contact);
+    if (v == null || !mounted) return;
+
+    final result = await _odooService.updateReferenceContact(
+      partnerId: contact.id,
+      values: {
+        'name': v['name'],
+        'phone': v['phone'],
+        'email': v['email'],
+        'street': v['street'],
+        'street2': v['street2'],
+        'zip': v['zip'],
+        'city': v['city'],
+        'country_id': v['country_id'] ?? false,
+      },
+    );
+
+    if (!mounted) return;
+    if (result['success'] == true) {
+      _showSnackBar('Contacto guardado');
+      _loadAll();
+    } else if (result['offline'] == true) {
+      _showSnackBar(_mensajeSinCobertura, isError: true);
+    } else {
+      _showSnackBar(result['error']?.toString() ?? 'No se pudo guardar el contacto', isError: true);
     }
   }
 
@@ -2399,10 +2724,17 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
           contentPadding: EdgeInsets.zero,
           leading: const CircleAvatar(child: Icon(Icons.person)),
           title: Text(contact.name),
-          subtitle: Text([
-            if (contact.phone != null) contact.phone!,
-            if (contact.email != null) contact.email!,
-          ].join(' · ')),
+          subtitle: Text(
+            [
+              [
+                if (contact.phone != null) contact.phone!,
+                if (contact.email != null) contact.email!,
+              ].join(' · '),
+              if (contact.addressLine != null) contact.addressLine!,
+            ].where((l) => l.isNotEmpty).join('\n'),
+          ),
+          // Al tocarlo: ficha con todos sus datos, y "Editar".
+          onTap: () => _showContactDetails(contact),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
