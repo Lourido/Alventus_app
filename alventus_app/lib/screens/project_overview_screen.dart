@@ -25,6 +25,8 @@ import 'stages_screen.dart';
 import 'stage_task_matrix_screen.dart';
 import 'stage_tasks_screen.dart';
 import 'trash_screen.dart';
+import '../services/usage_log_service.dart';
+import '../utils/app_messages.dart';
 
 /// Pantalla de aterrizaje al entrar en un viaje: datos generales del
 /// proyecto, contactos de referencia, archivos de ruta (GPX/KML/KMZ) y
@@ -86,6 +88,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   void initState() {
     super.initState();
     _dateStart = widget.project.dateStart;
+    UsageLog.screen('Abre un viaje', detail: widget.project.name);
     _dateEnd = widget.project.dateEnd;
     if (widget.openTodayStage) {
       // Al arrancar la app: salto inmediato a la etapa de hoy, con los
@@ -192,8 +195,8 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
 
       if (syncFailedWhileOnline && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('NO hay conexión. Estás viendo los datos guardados en el teléfono la última vez que usaste la app con conexión.'),
+          SnackBar(
+            content: Text(Msg.of('viendo_datos_guardados')),
             backgroundColor: Colors.orange,
           ),
         );
@@ -370,6 +373,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   // ---------------------------------------------------------------------
 
   Future<void> _showRenameDialog() async {
+    UsageLog.action('Renombra el viaje', detail: _displayName);
     final controller = TextEditingController(text: _displayName);
 
     final newName = await showDialog<String>(
@@ -957,8 +961,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   // CONTACTOS: crear, ver y editar (con dirección postal y país)
   // ---------------------------------------------------------------------
 
-  static const _mensajeSinCobertura =
-      'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+  String get _mensajeSinCobertura => Msg.of('sin_cobertura');
 
   /// Si otro contacto de este viaje ya tiene el teléfono [phone], su
   /// nombre; si no, null. [exceptId]: el contacto que se está editando.
@@ -1198,6 +1201,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   }
 
   Future<void> _showCreateContactDialog() async {
+    UsageLog.action('Crea un contacto', detail: _displayName);
     final v = await _showContactForm();
     if (v == null || !mounted) return;
 
@@ -1253,6 +1257,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   /// Ficha del contacto (al tocarlo en la lista): todos sus datos, con
   /// "Editar". Ver funciona sin cobertura; editar necesita cobertura.
   Future<void> _showContactDetails(ReferenceContact contact) async {
+    UsageLog.screen('Ficha de un contacto', detail: contact.name);
     Widget line(IconData icon, String? text) {
       if (text == null || text.isEmpty) return const SizedBox.shrink();
       return Padding(
@@ -1346,6 +1351,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   }
 
   Future<void> _confirmRemoveContact(ReferenceContact contact) async {
+    UsageLog.action('Quita un contacto del viaje', detail: contact.name);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1480,6 +1486,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   // ---------------------------------------------------------------------
 
   Future<void> _pickAndUploadRouteFile() async {
+    UsageLog.action('Sube un archivo de ruta', detail: _displayName);
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['gpx', 'kml', 'kmz', 'tcx', 'geojson'],
@@ -1576,6 +1583,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   /// Descarga el archivo de ruta al almacenamiento del teléfono y lo abre
   /// con la app que el usuario elija (Wikiloc, Komoot, Google Maps...).
   Future<void> _downloadAndOpenRouteFile(RouteFile routeFile) async {
+    UsageLog.action('Abre un archivo de ruta', detail: routeFile.fileName);
     _showSnackBar('Descargando ${routeFile.fileName}...');
 
     final result = await _odooService.downloadRouteFileData(routeFile.id);
@@ -1765,6 +1773,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   }
 
   Future<void> _confirmDeleteRouteFile(RouteFile routeFile) async {
+    UsageLog.action('Borra un archivo de ruta', detail: routeFile.fileName);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1851,6 +1860,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   }
 
   Future<void> _pickAndUploadPhoto({required bool fromCamera}) async {
+    UsageLog.action('Sube fotos', detail: _displayName);
     List<XFile> images;
 
     if (fromCamera) {
@@ -1914,7 +1924,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!hasConnection) {
       if (kIsWeb) {
         _showSnackBar(
-          'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.',
+          Msg.of('sin_cobertura'),
           isError: true,
         );
         return;
@@ -2120,6 +2130,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   }
 
   Future<void> _confirmDeletePhoto(Map<String, dynamic> photo) async {
+    UsageLog.action('Borra una foto', detail: _displayName);
     final photoId = photo['id'] as int;
     final fileName = photo['name']?.toString() ?? 'esta foto';
 
@@ -2160,6 +2171,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   // ---------------------------------------------------------------------
 
   Future<void> _pickAndUploadDocument() async {
+    UsageLog.action('Sube un documento', detail: _displayName);
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       withData: true,
@@ -2235,6 +2247,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   }
 
   Future<void> _downloadAndOpenDocument(Map<String, dynamic> attachment) async {
+    UsageLog.action('Abre un documento', detail: attachment['name']?.toString());
     final attachmentId = attachment['id'] as int;
     final fileName = attachment['name']?.toString() ?? 'documento';
 
@@ -2372,6 +2385,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
   }
 
   Future<void> _confirmDeleteDocument(Map<String, dynamic> attachment) async {
+    UsageLog.action('Borra un documento', detail: attachment['name']?.toString());
     final attachmentId = attachment['id'] as int;
     final fileName = attachment['name']?.toString() ?? 'este documento';
 

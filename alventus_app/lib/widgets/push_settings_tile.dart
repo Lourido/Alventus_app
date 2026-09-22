@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../services/usage_log_service.dart';
 import '../utils/push_notifications.dart';
+import '../utils/app_messages.dart';
 
 /// Sección "Avisos en el teléfono" del diálogo de avisos de la pantalla de
 /// inicio: activar/desactivar las notificaciones de las tareas con hora de
@@ -13,8 +15,7 @@ class PushSettingsTile extends StatefulWidget {
 }
 
 class _PushSettingsTileState extends State<PushSettingsTile> {
-  static const _mensajeSinCobertura =
-      'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+  String get _mensajeSinCobertura => Msg.of('sin_cobertura');
 
   PushStatus? _status;
   String? _publicKey;
@@ -57,6 +58,7 @@ class _PushSettingsTileState extends State<PushSettingsTile> {
       _show(_mensajeSinCobertura, error: true);
       return;
     }
+    UsageLog.action('Activa los avisos en el teléfono');
     final pending = PushNotifications.enableFromTap(key);
     setState(() {
       _busy = true;
@@ -79,6 +81,7 @@ class _PushSettingsTileState extends State<PushSettingsTile> {
       _busy = true;
       _message = null;
     });
+    UsageLog.action('Desactiva los avisos en el teléfono');
     await PushNotifications.disable();
     if (!mounted) return;
     setState(() => _busy = false);
@@ -91,6 +94,7 @@ class _PushSettingsTileState extends State<PushSettingsTile> {
       _busy = true;
       _message = null;
     });
+    UsageLog.action('Prueba los avisos en el teléfono');
     final problem = await PushNotifications.sendTest();
     if (!mounted) return;
     setState(() => _busy = false);

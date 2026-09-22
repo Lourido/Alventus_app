@@ -4,6 +4,7 @@ import '../services/odoo_service.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
+import '../utils/app_messages.dart';
 
 class ShareTripScreen extends StatefulWidget {
   const ShareTripScreen({super.key});
@@ -41,7 +42,7 @@ class _ShareTripScreenState extends State<ShareTripScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+        _errorMessage = Msg.of('sin_cobertura');
       });
       return;
     }

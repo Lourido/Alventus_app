@@ -3,6 +3,7 @@ import '../services/odoo_service.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
+import '../utils/app_messages.dart';
 
 class RemoveTripScreen extends StatefulWidget {
   const RemoveTripScreen({super.key});
@@ -38,7 +39,7 @@ class _RemoveTripScreenState extends State<RemoveTripScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+        _errorMessage = Msg.of('sin_cobertura');
       });
       return;
     }

@@ -7,6 +7,8 @@ import '../services/sync_service.dart';
 import '../models/project.dart';
 import '../utils/html_text.dart';
 import 'stage_tasks_screen.dart';
+import '../services/usage_log_service.dart';
+import '../utils/app_messages.dart';
 
 /// Muestra las etapas (días) de un viaje. La lista de etapas sale
 /// directamente de Odoo (project.task.type), no de las tareas locales,
@@ -97,6 +99,7 @@ class _StagesScreenState extends State<StagesScreen> {
   void initState() {
     super.initState();
     _loadStages();
+    UsageLog.screen('Ve las etapas de un viaje', detail: widget.project.name);
   }
 
   /// Agrupa las tareas locales por nombre de etapa (clave = nombre, o
@@ -257,8 +260,8 @@ class _StagesScreenState extends State<StagesScreen> {
   void _warnSyncFailed() {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('NO hay conexión. Estás viendo los datos guardados en el teléfono la última vez que usaste la app con conexión.'),
+      SnackBar(
+        content: Text(Msg.of('viendo_datos_guardados')),
         backgroundColor: Colors.orange,
       ),
     );
@@ -434,8 +437,8 @@ class _StagesScreenState extends State<StagesScreen> {
     final hasConnection = await _syncService.checkConnectivity();
     if (!hasConnection && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+        SnackBar(
+          content: Text(Msg.of('sin_cobertura')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -447,6 +450,7 @@ class _StagesScreenState extends State<StagesScreen> {
   /// guarda en Odoo. Se puede ver y editar siempre, tenga o no
   /// descripción ya puesta.
   Future<void> _editStageDescription(_StageGroup stage) async {
+    UsageLog.action('Edita la descripción de una etapa', detail: stage.stageName);
     if (stage.stageId == null) return; // "Sin etapa" no es una etapa real
 
     final controller = TextEditingController(text: stage.description ?? '');
@@ -543,8 +547,8 @@ class _StagesScreenState extends State<StagesScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+      SnackBar(
+        content: Text(Msg.of('guardado_en_telefono')),
         backgroundColor: Colors.orange,
       ),
     );
@@ -563,6 +567,7 @@ class _StagesScreenState extends State<StagesScreen> {
   }
 
   Future<void> _moveStageContent(int oldIndex, int newIndex) async {
+    UsageLog.action('Cambia el orden de las etapas', detail: widget.project.name);
     final step = newIndex > oldIndex ? 1 : -1;
     for (var i = oldIndex; i != newIndex + step; i += step) {
       if (_stages[i].stageId == null) {
@@ -711,8 +716,8 @@ class _StagesScreenState extends State<StagesScreen> {
         _isLoading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+        SnackBar(
+          content: Text(Msg.of('guardado_en_telefono')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -740,6 +745,7 @@ class _StagesScreenState extends State<StagesScreen> {
   // ---------------------------------------------------------------------
 
   Future<void> _confirmDeleteStage(_StageGroup stage) async {
+    UsageLog.action('Borra una etapa', detail: stage.stageName);
     if (stage.stageId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -853,6 +859,7 @@ class _StagesScreenState extends State<StagesScreen> {
   // ---------------------------------------------------------------------
 
   Future<void> _addStage() async {
+    UsageLog.action('Crea una etapa', detail: widget.project.name);
     if (!await _requireConnection()) return;
 
     setState(() => _isLoading = true);

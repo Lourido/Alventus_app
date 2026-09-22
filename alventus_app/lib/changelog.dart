@@ -189,4 +189,11 @@ const List<ChangelogEntry> kChangelog = [
       'Contactos de referencia: ahora tienen dirección postal completa (calle, piso, código postal, ciudad y país). Toca un contacto para ver todos sus datos y editarlos.',
     ],
   ),
+  ChangelogEntry(
+    version: 18,
+    date: '23 de septiembre de 2026',
+    changes: [
+      'La hora de inicio de las tareas se elige siempre en formato de 24 horas.',
+    ],
+  ),
 ];

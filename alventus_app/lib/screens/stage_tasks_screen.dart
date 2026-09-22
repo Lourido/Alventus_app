@@ -62,6 +62,8 @@ import '../utils/html_text.dart';
 
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
 import 'task_detail_screen.dart';
+import '../services/usage_log_service.dart';
+import '../utils/app_messages.dart';
 
 /// Muestra las tareas de una etapa (día) concreta de un viaje, permite
 /// crear tareas nuevas asignadas a esa etapa, y reordenarlas manualmente.
@@ -253,6 +255,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   void initState() {
     super.initState();
     _loadTasks();
+    UsageLog.screen('Abre una etapa', detail: '${widget.project.name} - ${widget.stageName}');
     _loadFabOffset();
   }
 
@@ -396,8 +399,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
     if (hasConnection && !tasksSynced && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('NO hay conexión. Estás viendo los datos guardados en el teléfono la última vez que usaste la app con conexión.'),
+        SnackBar(
+          content: Text(Msg.of('viendo_datos_guardados')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -454,6 +457,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   /// orden. La usan tanto el arrastre (app nativa) como los botones de
   /// subir/bajar (web).
   Future<void> _moveTaskTo(int oldIndex, int newIndex) async {
+    UsageLog.action('Cambia el orden de las tareas', detail: widget.stageName);
     final hasConnection = await _syncService.hasRealNetwork();
 
     // Se recoloca la tarea en su nueva posición y se renumeran todas
@@ -525,8 +529,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   void _warnSavedOffline() {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+      SnackBar(
+        content: Text(Msg.of('guardado_en_telefono')),
         backgroundColor: Colors.orange,
       ),
     );
@@ -588,8 +592,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
                   if (!mounted) return;
 
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+                    SnackBar(
+                      content: Text(Msg.of('guardado_en_telefono')),
                       backgroundColor: Colors.orange,
                     ),
                   );
@@ -610,6 +614,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   // ---------------------------------------------------------------------
 
   void _showCreateTaskDialog() {
+    UsageLog.action('Crea una tarea', detail: widget.stageName);
     final nameController = TextEditingController();
     final descController = TextEditingController();
 
@@ -779,8 +784,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+        SnackBar(
+          content: Text(Msg.of('guardado_en_telefono')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -930,8 +935,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
   Future<void> _pickStageAttachment() async {
     if (_stageId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+        SnackBar(
+          content: Text(Msg.of('sin_cobertura')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -967,8 +972,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     if (!hasConnection) {
       if (kIsWeb) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+          SnackBar(
+            content: Text(Msg.of('sin_cobertura')),
             backgroundColor: Colors.red,
           ),
         );
@@ -1103,8 +1108,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
     if (attachmentId < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+        SnackBar(
+          content: Text(Msg.of('sin_cobertura')),
           backgroundColor: Colors.orange,
         ),
       );

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../config/odoo_config.dart';
 import 'storage_service.dart';
+import 'usage_log_service.dart';
 
 class OdooService {
   // Singleton: todas las pantallas usan la misma instancia
@@ -300,6 +301,15 @@ class OdooService {
           print('   Traceback completo: ${errorData?['debug'] ?? ''}');
 
           serverReachable = true; // ha contestado Odoo: hay servidor
+
+          // Queda apuntado en el registro de uso (Viajes > Registro de uso
+          // de la app, en Odoo), para poder ver qué errores se encuentran
+          // los usuarios sin tener que preguntarles.
+          UsageLog.error(
+            'Error del servidor',
+            detail: '$model.$method: $displayMessage',
+          );
+
           return {
             'success': false,
             'error': displayMessage,
@@ -324,6 +334,10 @@ class OdooService {
       print('   Response: ${e.response?.data}');
       final offline = _isConnectionProblem(e);
       if (offline) serverReachable = false;
+      if (!offline) {
+        UsageLog.error('Falla la conexión con el servidor',
+            detail: '$model.$method: ${e.message}');
+      }
       return {
         'success': false,
         'error': 'Error de conexión: ${e.message}',
@@ -331,6 +345,7 @@ class OdooService {
       };
     } catch (e) {
       print('❌ executeKw - Excepción: $e');
+      UsageLog.error('Error inesperado', detail: '$model.$method: $e');
       return {
         'success': false,
         'error': 'Error inesperado: $e',

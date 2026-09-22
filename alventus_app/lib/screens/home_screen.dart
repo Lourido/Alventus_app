@@ -11,6 +11,8 @@ import 'create_trip_screen.dart';
 import 'share_trip_screen.dart';
 import 'remove_trip_screen.dart';
 import 'recover_trip_screen.dart';
+import '../services/usage_log_service.dart';
+import '../utils/app_messages.dart';
 import '../utils/push_notifications.dart';
 import '../widgets/push_settings_tile.dart';
 
@@ -26,8 +28,19 @@ class HomeScreen extends StatelessWidget {
   // PushNotifications.refreshRegistration.
   static bool _pushRegistrationRefreshed = false;
 
+  // Registro de uso de la app (quién la usa y qué hace): empieza aquí,
+  // con la sesión del usuario ya iniciada. Ver
+  // services/usage_log_service.dart.
+  static bool _usageLogStarted = false;
+
   @override
   Widget build(BuildContext context) {
+    if (!_usageLogStarted) {
+      _usageLogStarted = true;
+      UsageLog.startSession();
+      // Textos personalizados de los mensajes (Odoo > Mensajes de la app).
+      Msg.refresh();
+    }
     if (kIsWeb && !_pushRegistrationRefreshed) {
       _pushRegistrationRefreshed = true;
       PushNotifications.refreshRegistration();
@@ -360,6 +373,10 @@ class HomeScreen extends StatelessWidget {
     );
 
     if (confirmed != true) return;
+
+    UsageLog.action('Cierra sesión');
+    await UsageLog.endSession();
+    _usageLogStarted = false;
 
     // Este teléfono deja de recibir los avisos de este usuario. Sin
     // cobertura no se espera más de unos segundos: no debe impedir salir.

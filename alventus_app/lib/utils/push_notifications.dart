@@ -4,6 +4,7 @@ import 'dart:js_interop';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/odoo_service.dart';
+import 'app_messages.dart';
 
 /// Avisos en el teléfono (notificaciones push) para las tareas con hora de
 /// inicio. Solo en la versión web (PWA).
@@ -120,7 +121,7 @@ class PushNotifications {
 
     final ok = await _registerOnServer(raw);
     if (!ok) {
-      return 'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+      return Msg.of('sin_cobertura');
     }
     return null;
   }
@@ -178,11 +179,11 @@ class PushNotifications {
     }
     // Por si acaso, se vuelve a registrar antes (p. ej. si se borró en Odoo).
     if (!await _registerOnServer(jsonEncode(current))) {
-      return 'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+      return Msg.of('sin_cobertura');
     }
     final result = await _odoo.executeKw(model: _model, method: 'app_send_test', args: [endpoint]);
     if (result['success'] != true) {
-      return 'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+      return Msg.of('sin_cobertura');
     }
     final data = result['result'];
     if (data is Map && (data['sent'] as int? ?? 0) > 0) return null;

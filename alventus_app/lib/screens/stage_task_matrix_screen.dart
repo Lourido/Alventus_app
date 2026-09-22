@@ -6,6 +6,8 @@ import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
 import '../utils/trip_pdf.dart';
+import '../services/usage_log_service.dart';
+import '../utils/app_messages.dart';
 
 /// Muestra una rejilla con las etapas del viaje en columnas (4 visibles a
 /// la vez, con scroll horizontal para ver el resto) y, dentro de cada
@@ -73,6 +75,7 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
   void initState() {
     super.initState();
     _loadData();
+    UsageLog.screen('Ve etapas y tareas del viaje', detail: widget.project.name);
     _headerController.addListener(() => _syncScroll(_headerController, _bodyController));
     _bodyController.addListener(() => _syncScroll(_bodyController, _headerController));
   }
@@ -257,10 +260,10 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
   // GENERAR PDF
   // ---------------------------------------------------------------------
 
-  static const _mensajeSinCobertura =
-      'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+  String get _mensajeSinCobertura => Msg.of('sin_cobertura');
 
   Future<void> _onGeneratePdfPressed() async {
+    UsageLog.action('Genera un PDF del viaje', detail: widget.project.name);
     // El navegador puede tener aún el generador de PDF de antes de la
     // última actualización (guardado en su caché): con él, el PDF saldría
     // mal. Se avisa en vez de generarlo.
@@ -317,7 +320,7 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
       if (!mounted) return;
       if (!canReach) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text(_mensajeSinCobertura), backgroundColor: Colors.orange),
+          SnackBar(content: Text(_mensajeSinCobertura), backgroundColor: Colors.orange),
         );
         return;
       }

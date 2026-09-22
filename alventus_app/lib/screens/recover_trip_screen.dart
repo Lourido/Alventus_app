@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/odoo_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
+import '../utils/app_messages.dart';
 
 /// Lista los viajes marcados como "quitados" (invisible=true) y permite
 /// recuperarlos (invisible=false). Consulta directamente a Odoo, ya que
@@ -39,7 +40,7 @@ class _RecoverTripScreenState extends State<RecoverTripScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.';
+        _errorMessage = Msg.of('sin_cobertura');
       });
       return;
     }

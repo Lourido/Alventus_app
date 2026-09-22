@@ -4,6 +4,7 @@ import '../services/odoo_service.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
+import '../utils/app_messages.dart';
 
 /// Papelera: documentos, archivos de ruta y contactos que se han borrado
 /// desde la pantalla del viaje, con opción de restaurarlos.
@@ -84,8 +85,8 @@ class _TrashScreenState extends State<TrashScreen> {
     if (!hasConnection) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+        SnackBar(
+          content: Text(Msg.of('sin_cobertura')),
           backgroundColor: Colors.orange,
         ),
       );

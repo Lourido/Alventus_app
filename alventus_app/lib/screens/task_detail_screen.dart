@@ -15,6 +15,8 @@ import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../utils/push_notifications.dart';
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
+import '../services/usage_log_service.dart';
+import '../utils/app_messages.dart';
 
 class TaskDetailScreen extends StatefulWidget {
   final Task task;
@@ -45,6 +47,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   void initState() {
     super.initState();
     _task = widget.task;
+    UsageLog.screen('Abre una tarea', detail: widget.task.name);
     _nameController = TextEditingController(text: _task.name);
     _descriptionController = TextEditingController(text: _task.description ?? '');
     _loadTaskData();
@@ -108,13 +111,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   // Guardar cambios de la tarea
   Future<void> _saveTask() async {
+    UsageLog.action('Guarda una tarea', detail: _task.name);
     final name = _nameController.text.trim();
     final description = _descriptionController.text.trim();
 
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vamos,vamos, ... donde se ha visto ... dale un nombre.'),
+        SnackBar(
+          content: Text(Msg.of('tarea_sin_nombre')),
           backgroundColor: Colors.red,
         ),
       );
@@ -228,8 +232,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+        SnackBar(
+          content: Text(Msg.of('guardado_en_telefono')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -281,6 +285,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   }
 
   Future<void> _pickStartTime() async {
+    UsageLog.action('Pone la hora de inicio de una tarea', detail: _task.name);
     final current = Task.startTimeOf(_task.fechaDesde);
     final picked = await showTimePicker(
       context: context,
@@ -416,8 +421,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Cambios guardados en el teléfono. Cuando haya conexión se subirán al servidor.'),
+      SnackBar(
+        content: Text(Msg.of('guardado_en_telefono')),
         backgroundColor: Colors.orange,
       ),
     );
@@ -704,6 +709,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   // Subir archivo a Odoo (o guardarlo localmente si no hay conexión)
   Future<void> _uploadFile(Uint8List bytes, String fileName) async {
+    UsageLog.action('Adjunta un archivo a una tarea', detail: fileName);
     // Mostrar indicador de carga
     showDialog(
       context: context,
@@ -755,8 +761,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (!mounted) return;
       Navigator.pop(context); // Cerrar indicador
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+        SnackBar(
+          content: Text(Msg.of('sin_cobertura')),
           backgroundColor: Colors.red,
         ),
       );
@@ -821,6 +827,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   // Borrar un adjunto
   Future<void> _deleteAttachment(Attachment attachment) async {
+    UsageLog.action('Borra un adjunto de una tarea', detail: attachment.name);
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -869,6 +876,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   // Abrir/descargar un adjunto
   Future<void> _openAttachment(Attachment attachment) async {
+    UsageLog.action('Abre un adjunto de una tarea', detail: attachment.name);
     // Mostrar indicador de carga
     showDialog(
       context: context,

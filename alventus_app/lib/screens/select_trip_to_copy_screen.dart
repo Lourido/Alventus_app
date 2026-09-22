@@ -4,6 +4,7 @@ import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
 import 'project_overview_screen.dart';
+import '../utils/app_messages.dart';
 
 class SelectTripToCopyScreen extends StatefulWidget {
   const SelectTripToCopyScreen({super.key});
@@ -73,8 +74,8 @@ class _SelectTripToCopyScreenState extends State<SelectTripToCopyScreen> {
     if (!hasConnection) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+        SnackBar(
+          content: Text(Msg.of('sin_cobertura')),
           backgroundColor: Colors.orange,
         ),
       );

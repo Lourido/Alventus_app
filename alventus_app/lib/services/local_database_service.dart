@@ -35,7 +35,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 12,
+      version: 13,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -199,6 +199,20 @@ class LocalDatabaseService {
       )
     ''');
 
+
+    // Registro de uso de la app pendiente de subir a Odoo (quién usa la
+    // app y qué hace). Ver services/usage_log_service.dart.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        action TEXT NOT NULL,
+        detail TEXT,
+        offline INTEGER DEFAULT 0
+      )
+    ''');
+
     // Papelera: documentos, archivos de ruta y contactos que el usuario
     // borra quedan aquí guardados (con su contenido, si lo tienen) antes
     // de borrarse de verdad en Odoo, por si se quieren recuperar luego.
@@ -347,6 +361,24 @@ class LocalDatabaseService {
         print('✅ Columna stage_id añadida a tasks');
       } catch (e) {
         print('⚠️ No se pudo añadir stage_id (puede que ya exista): $e');
+      }
+    }
+
+    if (oldVersion < 13) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS usage_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            action TEXT NOT NULL,
+            detail TEXT,
+            offline INTEGER DEFAULT 0
+          )
+        ''');
+        print('✅ Tabla del registro de uso (usage_events) añadida');
+      } catch (e) {
+        print('⚠️ No se pudo añadir usage_events (puede que ya exista): $e');
       }
     }
 
@@ -1291,4 +1323,54 @@ class LocalDatabaseService {
       print('🗑️ Papelera: $deletedCount elemento(s) con más de 30 días borrados definitivamente');
     }
   }
+
+  // ============ REGISTRO DE USO DE LA APP ============
+  //
+  // Cola de lo que el usuario va haciendo, a la espera de subirlo a Odoo
+  // (ver services/usage_log_service.dart). Es información de apoyo: si
+  // algo falla aquí, no debe afectar al resto de la app.
+
+  Future<void> addUsageEvent({
+    required String ts,
+    required String kind,
+    required String action,
+    String? detail,
+    bool offline = false,
+  }) async {
+    final db = await database;
+    await db.insert('usage_events', {
+      'ts': ts,
+      'kind': kind,
+      'action': action,
+      'detail': detail,
+      'offline': offline ? 1 : 0,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getUsageEvents(int limit) async {
+    final db = await database;
+    return await db.query('usage_events', orderBy: 'id ASC', limit: limit);
+  }
+
+  Future<void> deleteUsageEvents(List<int> ids) async {
+    if (ids.isEmpty) return;
+    final db = await database;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.delete('usage_events', where: 'id IN ($placeholders)', whereArgs: ids);
+  }
+
+  /// Si se acumulan demasiados sin poder subirlos (mucho tiempo sin
+  /// cobertura), se tiran los más antiguos.
+  Future<void> trimUsageEvents(int maximo) async {
+    final db = await database;
+    final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM usage_events');
+    final total = (rows.isNotEmpty ? rows.first['n'] as int? ?? 0 : 0);
+    if (total <= maximo) return;
+    await db.rawDelete(
+      'DELETE FROM usage_events WHERE id IN ('
+      'SELECT id FROM usage_events ORDER BY id ASC LIMIT ?)',
+      [total - maximo],
+    );
+  }
+
 }

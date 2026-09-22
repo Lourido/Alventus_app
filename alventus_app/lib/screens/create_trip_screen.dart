@@ -2,6 +2,7 @@
 import '../services/odoo_service.dart';
 import 'select_trip_to_copy_screen.dart';
 import 'create_trip_form_screen.dart';
+import '../utils/app_messages.dart';
 
 class CreateTripScreen extends StatelessWidget {
   const CreateTripScreen({super.key});
@@ -30,8 +31,8 @@ class CreateTripScreen extends StatelessWidget {
 
     if (!hayServidor) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lo siento. Tendrás que esperar a que tengas cobertura para hacerlo.'),
+        SnackBar(
+          content: Text(Msg.of('sin_cobertura')),
           backgroundColor: Colors.orange,
         ),
       );

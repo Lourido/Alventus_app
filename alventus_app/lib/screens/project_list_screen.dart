@@ -3,6 +3,7 @@ import '../services/local_database_service.dart';
 import '../services/sync_service.dart';
 import '../models/project.dart';
 import 'project_overview_screen.dart';
+import '../services/usage_log_service.dart';
 
 class ProjectListScreen extends StatefulWidget {
   const ProjectListScreen({super.key});
@@ -28,6 +29,7 @@ class _ProjectListScreenState extends State<ProjectListScreen> {
   void initState() {
     super.initState();
     _loadProjects();
+    UsageLog.screen('Lista de viajes');
   }
 
   Future<void> _loadProjects() async {
