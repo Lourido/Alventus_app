@@ -127,7 +127,7 @@ class _RemoveTripScreenState extends State<RemoveTripScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['error']?.toString() ?? 'Error al quitar el viaje'),
+          content: Text(result['error']?.toString() ?? Msg.of('error_al_quitar_el_viaje')),
           backgroundColor: Colors.red,
         ),
       );

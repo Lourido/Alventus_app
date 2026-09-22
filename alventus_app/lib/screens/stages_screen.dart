@@ -504,7 +504,7 @@ class _StagesScreenState extends State<StagesScreen> {
       if (result['offline'] != true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['error']?.toString() ?? 'No se pudo guardar la descripción'),
+            content: Text(result['error']?.toString() ?? Msg.of('no_se_pudo_guardar_la_descripcion')),
             backgroundColor: Colors.red,
           ),
         );
@@ -572,8 +572,8 @@ class _StagesScreenState extends State<StagesScreen> {
     for (var i = oldIndex; i != newIndex + step; i += step) {
       if (_stages[i].stageId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sin cobertura no consigo identificar esta etapa. Abre este viaje una vez con cobertura y vuelve a intentarlo.'),
+          SnackBar(
+            content: Text(Msg.of('sin_cobertura_no_consigo_identificar_esta_etapa')),
             backgroundColor: Colors.orange,
           ),
         );
@@ -730,8 +730,8 @@ class _StagesScreenState extends State<StagesScreen> {
 
     if (!allOk) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Alguna tarea no se pudo mover correctamente'),
+        SnackBar(
+          content: Text(Msg.of('alguna_tarea_no_se_pudo_mover_correctamente')),
           backgroundColor: Colors.red,
         ),
       );
@@ -748,8 +748,8 @@ class _StagesScreenState extends State<StagesScreen> {
     UsageLog.action('Borra una etapa', detail: stage.stageName);
     if (stage.stageId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Esto no es una etapa real, no se puede borrar'),
+        SnackBar(
+          content: Text(Msg.of('esto_no_es_una_etapa_real_no')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -837,15 +837,15 @@ class _StagesScreenState extends State<StagesScreen> {
 
     if (deleteTasksResult['success'] != true || deleteStageResult['success'] != true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Hubo un problema al borrar (revisa la etapa en Odoo)'),
+        SnackBar(
+          content: Text(Msg.of('hubo_un_problema_al_borrar_revisa_la')),
           backgroundColor: Colors.red,
         ),
       );
     } else if (renameFailed) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Etapa borrada, pero alguna etapa siguiente no se pudo renumerar'),
+        SnackBar(
+          content: Text(Msg.of('etapa_borrada_pero_alguna_etapa_siguiente_no')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -869,7 +869,7 @@ class _StagesScreenState extends State<StagesScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudieron obtener las etapas'), backgroundColor: Colors.red),
+        SnackBar(content: Text(Msg.of('no_se_pudieron_obtener_las_etapas')), backgroundColor: Colors.red),
       );
       return;
     }
@@ -937,7 +937,7 @@ class _StagesScreenState extends State<StagesScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(createResult['error']?.toString() ?? 'No se pudo añadir la etapa'),
+          content: Text(createResult['error']?.toString() ?? Msg.of('no_se_pudo_anadir_la_etapa')),
           backgroundColor: Colors.red,
         ),
       );

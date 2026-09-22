@@ -85,8 +85,8 @@ class _ShareTripScreenState extends State<ShareTripScreen> {
   void _showShareDialog(Project project) async {
     if (_guides.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No hay usuarios en el grupo "Guías" con quien compartir'),
+        SnackBar(
+          content: Text(Msg.of('no_hay_usuarios_en_el_grupo_guias')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -233,7 +233,7 @@ class _ShareTripScreenState extends State<ShareTripScreen> {
       Navigator.pop(context); // cerrar indicador
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(copyResult['error']?.toString() ?? 'Error al compartir el viaje'),
+          content: Text(copyResult['error']?.toString() ?? Msg.of('error_al_compartir_el_viaje')),
           backgroundColor: Colors.red,
         ),
       );
@@ -258,8 +258,8 @@ class _ShareTripScreenState extends State<ShareTripScreen> {
 
     if (managerResult['success'] != true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('El viaje se copió, pero no se pudo asignar el guía como gestor'),
+        SnackBar(
+          content: Text(Msg.of('el_viaje_se_copio_pero_no_se')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -315,8 +315,8 @@ class _ShareTripScreenState extends State<ShareTripScreen> {
 
     if (!opened && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo abrir WhatsApp'),
+        SnackBar(
+          content: Text(Msg.of('no_se_pudo_abrir_whatsapp')),
           backgroundColor: Colors.orange,
         ),
       );

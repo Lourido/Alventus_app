@@ -152,7 +152,7 @@ class _TrashScreenState extends State<TrashScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['error']?.toString() ?? 'No se pudo restaurar'),
+          content: Text(result['error']?.toString() ?? Msg.of('no_se_pudo_restaurar')),
           backgroundColor: Colors.red,
         ),
       );

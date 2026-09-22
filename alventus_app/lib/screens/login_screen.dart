@@ -5,6 +5,7 @@ import '../services/storage_service.dart';
 import '../config/odoo_config.dart';
 import 'home_screen.dart';
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
+import '../utils/app_messages.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -95,7 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       print('❌ _login: Login fallido: ${result['error']}');
       setState(() {
-        _errorMessage = result['error'] ?? 'Cachissssss que no me coincide ... ';
+        _errorMessage = result['error'] ?? Msg.of('cachissssss_que_no_me_coincide');
         _isLoading = false;
       });
     }
@@ -126,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'No te tengo guardado. Será porque es la primera vez que entras aquí. Vuelve cuando haya conexión.';
+        _errorMessage = Msg.of('no_te_tengo_guardado_sera_porque_es');
       });
     }
   }

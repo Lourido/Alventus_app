@@ -6,6 +6,7 @@ import '../models/project.dart';
 import '../models/task.dart';
 import 'task_detail_screen.dart';
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
+import '../utils/app_messages.dart';
 
 class ProjectDetailScreen extends StatefulWidget {
   final Project project;
@@ -142,7 +143,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(result['error'] ?? 'Error al crear tarea'),
+                        content: Text(result['error'] ?? Msg.of('error_al_crear_tarea')),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -195,8 +196,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Tarea guardada localmente. Se sincronizará cuando haya conexión.'),
+      SnackBar(
+        content: Text(Msg.of('tarea_guardada_localmente_se_sincronizara_cuando_h')),
         backgroundColor: Colors.orange,
       ),
     );
@@ -240,7 +241,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(result['error'] ?? 'Error al borrar tarea'),
+                        content: Text(result['error'] ?? Msg.of('error_al_borrar_tarea')),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -257,8 +258,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                   if (!mounted) return;
 
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Tarea borrada localmente. Se sincronizará cuando haya conexión.'),
+                    SnackBar(
+                      content: Text(Msg.of('tarea_borrada_localmente_se_sincronizara_cuando_ha')),
                       backgroundColor: Colors.orange,
                     ),
                   );

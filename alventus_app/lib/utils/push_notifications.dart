@@ -109,14 +109,13 @@ class PushNotifications {
     final raw = await pending;
 
     if (raw == 'denied') {
-      return 'Has bloqueado los avisos. Para recibirlos, permítelos para '
-          'Alventus en los ajustes del teléfono.';
+      return Msg.of('has_bloqueado_los_avisos_para_recibirlos_permitelo');
     }
     if (raw == 'default') {
-      return 'No se han activado los avisos.';
+      return Msg.of('no_se_han_activado_los_avisos');
     }
     if (raw.startsWith('error')) {
-      return 'No se han podido activar los avisos: ${raw.substring(raw.indexOf(':') + 1).trim()}';
+      return Msg.of('no_se_han_podido_activar_los_avisos', {'detalle': '${raw.substring(raw.indexOf(':') + 1).trim()}'});
     }
 
     final ok = await _registerOnServer(raw);
@@ -175,7 +174,7 @@ class PushNotifications {
     final current = await _currentSubscription();
     final endpoint = current?['endpoint'];
     if (endpoint is! String || endpoint.isEmpty) {
-      return 'Los avisos no están activados en este teléfono.';
+      return Msg.of('los_avisos_no_estan_activados_en_este');
     }
     // Por si acaso, se vuelve a registrar antes (p. ej. si se borró en Odoo).
     if (!await _registerOnServer(jsonEncode(current))) {
@@ -189,7 +188,7 @@ class PushNotifications {
     if (data is Map && (data['sent'] as int? ?? 0) > 0) return null;
     final errors = data is Map ? data['errors'] : null;
     final detail = errors is List && errors.isNotEmpty ? ' (${errors.first})' : '';
-    return 'El servidor no ha podido mandar el aviso$detail.';
+    return Msg.of('el_servidor_no_ha_podido_mandar_el', {'detalle': '$detail'});
   }
 
   static Future<Map<String, dynamic>?> _currentSubscription() async {

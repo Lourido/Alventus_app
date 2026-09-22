@@ -253,7 +253,7 @@ class _SelectTripToCopyScreenState extends State<SelectTripToCopyScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['error'] ?? 'Error al copiar el viaje'),
+          content: Text(result['error'] ?? Msg.of('error_al_copiar_el_viaje')),
           backgroundColor: Colors.red,
         ),
       );

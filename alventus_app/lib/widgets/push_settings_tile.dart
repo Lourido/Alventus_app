@@ -127,22 +127,19 @@ class _PushSettingsTileState extends State<PushSettingsTile> {
     } else {
       switch (status) {
         case PushStatus.unsupported:
-          children.add(const Text(
-            'Este navegador no puede recibir avisos.',
-            style: TextStyle(color: Colors.orange),
+          children.add(Text(
+            Msg.of('este_navegador_no_puede_recibir_avisos'),
+            style: const TextStyle(color: Colors.orange),
           ));
         case PushStatus.iosNeedsInstall:
-          children.add(const Text(
-            'En el iPhone, los avisos solo funcionan con la app añadida a la '
-            'pantalla de inicio: en Safari, pulsa Compartir y luego "Añadir a '
-            'pantalla de inicio", y abre la app desde ese icono.',
-            style: TextStyle(color: Colors.orange),
+          children.add(Text(
+            Msg.of('en_el_iphone_los_avisos_solo_funcionan'),
+            style: const TextStyle(color: Colors.orange),
           ));
         case PushStatus.denied:
-          children.add(const Text(
-            'Has bloqueado los avisos. Para recibirlos, permítelos para '
-            'Alventus en los ajustes del teléfono.',
-            style: TextStyle(color: Colors.orange),
+          children.add(Text(
+            Msg.of('has_bloqueado_los_avisos_para_recibirlos_permitelo'),
+            style: const TextStyle(color: Colors.orange),
           ));
         case PushStatus.notEnabled:
           children.add(FilledButton.icon(

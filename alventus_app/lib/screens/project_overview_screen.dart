@@ -204,7 +204,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Error al cargar los datos del viaje: $e';
+        _errorMessage = Msg.of('error_al_cargar_los_datos_del_viaje', {'detalle': '$e'});
         _isLoading = false;
       });
     }
@@ -422,9 +422,9 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       // toque sincronizar por su cuenta.
       await _syncService.syncProjects();
       if (!mounted) return;
-      _showSnackBar('Viaje renombrado correctamente');
+      _showSnackBar(Msg.of('viaje_renombrado_correctamente'));
     } else {
-      _showSnackBar('No se pudo renombrar el viaje', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_renombrar_el_viaje'), isError: true);
     }
   }
 
@@ -500,15 +500,8 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('No se puede leer la agenda del iPhone'),
-        content: const Text(
-          'Lo sentimos: en el iPhone, Safari no permite que ninguna '
-          'página web (incluida esta) lea los contactos guardados en el '
-          'teléfono. Es una limitación del propio Safari, no de esta '
-          'app, y no depende de nosotros arreglarlo.\n\n'
-          'Puedes crear el contacto a mano, o copiar el nombre/teléfono '
-          'desde la app Contactos del iPhone y pegarlo aquí.',
-        ),
+        title: Text(Msg.of('no_se_puede_leer_la_agenda_del')),
+        content: Text(Msg.of('lo_sentimos_en_el_iphone_safari_no')),
         actions: [
           ElevatedButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -527,7 +520,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     final granted = await FlutterContacts.requestPermission(readonly: true);
     if (!granted) {
       if (mounted) {
-        _showSnackBar('Necesitas conceder permiso de contactos del teléfono', isError: true);
+        _showSnackBar(Msg.of('necesitas_conceder_permiso_de_contactos_del_telefo'), isError: true);
       }
       return;
     }
@@ -724,7 +717,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     final granted = await FlutterContacts.requestPermission(readonly: true);
     if (!granted) {
       if (mounted) {
-        _showSnackBar('Necesitas conceder permiso de contactos del teléfono', isError: true);
+        _showSnackBar(Msg.of('necesitas_conceder_permiso_de_contactos_del_telefo'), isError: true);
       }
       return;
     }
@@ -739,14 +732,14 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!mounted) return;
 
     if (full == null) {
-      _showSnackBar('No se pudo leer el contacto seleccionado', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_leer_el_contacto_seleccionado'), isError: true);
       return;
     }
 
     // Evita añadir dos veces el mismo contacto a este viaje (antes no se
     // comprobaba nada aquí y se podía importar el mismo contacto repetidas veces).
     if (_contacts.any((linked) => _isSameContact(full, linked))) {
-      _showSnackBar('${full.displayName.trim()} ya está en este viaje', isError: true);
+      _showSnackBar(Msg.of('ya_esta_en_este_viaje', {'detalle': '${full.displayName.trim()}'}), isError: true);
       return;
     }
 
@@ -795,7 +788,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     final bytes = Uint8List.fromList(utf8.encode(vcard));
     final opened = await openBytesOnWeb(bytes, '${contact.name}.vcf');
     if (!opened && mounted) {
-      _showSnackBar('No se pudo abrir el contacto', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_abrir_el_contacto'), isError: true);
     }
   }
 
@@ -811,7 +804,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     final bytes = Uint8List.fromList(utf8.encode(vcard));
     final opened = await openBytesOnWeb(bytes, 'contactos.vcf');
     if (!opened && mounted) {
-      _showSnackBar('No se pudieron abrir los contactos', isError: true);
+      _showSnackBar(Msg.of('no_se_pudieron_abrir_los_contactos'), isError: true);
     }
   }
 
@@ -830,9 +823,9 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
 
     try {
       await _insertDeviceContact(contact);
-      if (mounted) _showSnackBar('${contact.name} guardado en tus contactos');
+      if (mounted) _showSnackBar(Msg.of('guardado_en_tus_contactos', {'detalle': '${contact.name}'}));
     } catch (e) {
-      if (mounted) _showSnackBar('No se pudo guardar el contacto: $e', isError: true);
+      if (mounted) _showSnackBar(Msg.of('no_se_pudo_guardar_el_contacto', {'detalle': '$e'}), isError: true);
     }
   }
 
@@ -880,7 +873,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     // diferencia de la importación, que solo necesitaba lectura.
     final granted = await FlutterContacts.requestPermission(readonly: false);
     if (!granted && mounted) {
-      _showSnackBar('Necesitas conceder permiso de contactos del teléfono', isError: true);
+      _showSnackBar(Msg.of('necesitas_conceder_permiso_de_contactos_del_telefo'), isError: true);
     }
     return granted;
   }
@@ -1341,7 +1334,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
 
     if (!mounted) return;
     if (result['success'] == true) {
-      _showSnackBar('Contacto guardado');
+      _showSnackBar(Msg.of('contacto_guardado'));
       _loadAll();
     } else if (result['offline'] == true) {
       _showSnackBar(_mensajeSinCobertura, isError: true);
@@ -1394,7 +1387,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (result['success'] == true) {
       _loadAll();
     } else {
-      _showSnackBar('No se pudo quitar el contacto', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_quitar_el_contacto'), isError: true);
     }
   }
 
@@ -1515,7 +1508,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
 
     if (validFiles.isEmpty) {
       _showSnackBar(
-        'Ningún archivo válido (solo .gpx, .kml, .kmz, .tcx, .geojson)',
+        Msg.of('ningun_archivo_valido_solo_gpx_kml_kmz'),
         isError: true,
       );
       return;
@@ -1539,7 +1532,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!hasConnection) {
       if (kIsWeb) {
         _showSnackBar(
-          'Sin conexión: en el navegador hace falta conexión para subir archivos',
+          Msg.of('sin_conexion_en_el_navegador_hace_falta'),
           isError: true,
         );
         return;
@@ -1591,19 +1584,19 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!mounted) return;
 
     if (result['success'] != true) {
-      _showSnackBar('No se pudo descargar el archivo', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_descargar_el_archivo'), isError: true);
       return;
     }
 
     final records = result['result'] as List<dynamic>;
     if (records.isEmpty) {
-      _showSnackBar('Archivo no encontrado', isError: true);
+      _showSnackBar(Msg.of('archivo_no_encontrado'), isError: true);
       return;
     }
 
     final base64Data = (records[0] as Map<String, dynamic>)['file_data'] as String?;
     if (base64Data == null) {
-      _showSnackBar('El archivo está vacío', isError: true);
+      _showSnackBar(Msg.of('el_archivo_esta_vacio'), isError: true);
       return;
     }
 
@@ -1613,7 +1606,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       if (kIsWeb) {
         final opened = await openBytesOnWeb(bytes, routeFile.fileName);
         if (!opened && mounted) {
-          _showSnackBar('No se pudo abrir el archivo', isError: true);
+          _showSnackBar(Msg.of('no_se_pudo_abrir_el_archivo'), isError: true);
         }
         return;
       }
@@ -1626,7 +1619,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       await OpenFilex.open(filePath);
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('No se pudo abrir el archivo: $e', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_abrir_el_archivo_2', {'detalle': '$e'}), isError: true);
     }
   }
 
@@ -1655,7 +1648,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!mounted) return;
 
     if (bytes == null) {
-      _showSnackBar('No se pudo descargar el archivo', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_descargar_el_archivo'), isError: true);
       return;
     }
 
@@ -1765,7 +1758,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (cancelled || !mounted) return;
 
     if (tempFiles.isEmpty) {
-      _showSnackBar('No se pudo descargar ningún archivo de ruta', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_descargar_ningun_archivo_de'), isError: true);
       return;
     }
 
@@ -1821,7 +1814,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (result['success'] == true) {
       _loadAll();
     } else {
-      _showSnackBar('No se pudo borrar el archivo', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_borrar_el_archivo'), isError: true);
     }
   }
 
@@ -2090,19 +2083,19 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!mounted) return;
 
     if (result['success'] != true) {
-      _showSnackBar('No se pudo descargar la foto', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_descargar_la_foto'), isError: true);
       return;
     }
 
     final records = result['result'] as List<dynamic>;
     if (records.isEmpty) {
-      _showSnackBar('Foto no encontrada', isError: true);
+      _showSnackBar(Msg.of('foto_no_encontrada'), isError: true);
       return;
     }
 
     final base64Data = (records[0] as Map<String, dynamic>)['image'] as String?;
     if (base64Data == null) {
-      _showSnackBar('La foto está vacía', isError: true);
+      _showSnackBar(Msg.of('la_foto_esta_vacia'), isError: true);
       return;
     }
 
@@ -2112,7 +2105,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       if (kIsWeb) {
         final opened = await openBytesOnWeb(bytes, fileName);
         if (!opened && mounted) {
-          _showSnackBar('No se pudo abrir la foto', isError: true);
+          _showSnackBar(Msg.of('no_se_pudo_abrir_la_foto'), isError: true);
         }
         return;
       }
@@ -2125,7 +2118,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       await OpenFilex.open(filePath);
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('No se pudo abrir la foto: $e', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_abrir_la_foto_2', {'detalle': '$e'}), isError: true);
     }
   }
 
@@ -2162,7 +2155,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (result['success'] == true) {
       _loadAll();
     } else {
-      _showSnackBar('No se pudo borrar la foto', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_borrar_la_foto'), isError: true);
     }
   }
 
@@ -2199,7 +2192,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!hasConnection) {
       if (kIsWeb) {
         _showSnackBar(
-          'Sin conexión: en el navegador hace falta conexión para subir archivos',
+          Msg.of('sin_conexion_en_el_navegador_hace_falta'),
           isError: true,
         );
         return;
@@ -2258,19 +2251,19 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!mounted) return;
 
     if (result['success'] != true) {
-      _showSnackBar('No se pudo descargar el documento', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_descargar_el_documento'), isError: true);
       return;
     }
 
     final records = result['result'] as List<dynamic>;
     if (records.isEmpty) {
-      _showSnackBar('Documento no encontrado', isError: true);
+      _showSnackBar(Msg.of('documento_no_encontrado'), isError: true);
       return;
     }
 
     final base64Data = (records[0] as Map<String, dynamic>)['datas'] as String?;
     if (base64Data == null) {
-      _showSnackBar('El documento está vacío', isError: true);
+      _showSnackBar(Msg.of('el_documento_esta_vacio'), isError: true);
       return;
     }
 
@@ -2280,7 +2273,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       if (kIsWeb) {
         final opened = await openBytesOnWeb(bytes, fileName);
         if (!opened && mounted) {
-          _showSnackBar('No se pudo abrir el documento', isError: true);
+          _showSnackBar(Msg.of('no_se_pudo_abrir_el_documento'), isError: true);
         }
         return;
       }
@@ -2293,7 +2286,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
       await OpenFilex.open(filePath);
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('No se pudo abrir el documento: $e', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_abrir_el_documento_2', {'detalle': '$e'}), isError: true);
     }
   }
 
@@ -2329,7 +2322,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (!mounted) return;
 
     if (bytes == null) {
-      _showSnackBar('No se pudo descargar el documento', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_descargar_el_documento'), isError: true);
       return;
     }
 
@@ -2436,7 +2429,7 @@ class _ProjectOverviewScreenState extends State<ProjectOverviewScreen> {
     if (result['success'] == true) {
       _loadAll();
     } else {
-      _showSnackBar('No se pudo borrar el documento', isError: true);
+      _showSnackBar(Msg.of('no_se_pudo_borrar_el_documento'), isError: true);
     }
   }
 

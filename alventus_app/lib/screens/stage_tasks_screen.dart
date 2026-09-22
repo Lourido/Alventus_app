@@ -574,7 +574,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text(result['error'] ?? 'Error al borrar tarea'),
+                        content: Text(result['error'] ?? Msg.of('error_al_borrar_tarea')),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -738,7 +738,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['error']?.toString() ?? 'Error al crear la tarea'),
+            content: Text(result['error']?.toString() ?? Msg.of('error_al_crear_la_tarea')),
             backgroundColor: Colors.red,
           ),
         );
@@ -839,8 +839,8 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
         SnackBar(
           content: Text(
             isFrom
-                ? 'La hora "desde" no puede ser posterior a la hora "hasta" ya guardada'
-                : 'La hora "hasta" no puede ser anterior a la hora "desde" ya guardada',
+                ? Msg.of('la_hora_desde_no_puede_ser_posterior')
+                : Msg.of('la_hora_hasta_no_puede_ser_anterior'),
           ),
           backgroundColor: Colors.orange,
         ),
@@ -907,7 +907,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(result['error']?.toString() ?? 'No se pudo cambiar la hora'),
+        content: Text(result['error']?.toString() ?? Msg.of('no_se_pudo_cambiar_la_hora')),
         backgroundColor: Colors.red,
       ),
     );
@@ -1019,7 +1019,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       SnackBar(
         content: Text(
           okCount == confirmedFiles.length
-              ? '$okCount archivo(s) subido(s) correctamente'
+              ? Msg.of('archivo_s_subido_s_correctamente', {'detalle': '$okCount'})
               : '$okCount de ${confirmedFiles.length} archivo(s) subidos (algunos fallaron)',
         ),
         backgroundColor: okCount == 0 ? Colors.red : null,
@@ -1126,7 +1126,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
 
     if (result['success'] != true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo descargar el archivo'), backgroundColor: Colors.red),
+        SnackBar(content: Text(Msg.of('no_se_pudo_descargar_el_archivo')), backgroundColor: Colors.red),
       );
       return;
     }
@@ -1144,7 +1144,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
         final opened = await openBytesOnWeb(bytes, fileName);
         if (!opened && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No se pudo abrir el archivo'), backgroundColor: Colors.red),
+            SnackBar(content: Text(Msg.of('no_se_pudo_abrir_el_archivo')), backgroundColor: Colors.red),
           );
         }
         return;
@@ -1159,7 +1159,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo abrir el archivo: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text(Msg.of('no_se_pudo_abrir_el_archivo_2', {'detalle': '$e'})), backgroundColor: Colors.red),
       );
     }
   }
@@ -1208,7 +1208,7 @@ class _StageTasksScreenState extends State<StageTasksScreen> {
       _loadTasks();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo borrar el adjunto'), backgroundColor: Colors.red),
+        SnackBar(content: Text(Msg.of('no_se_pudo_borrar_el_adjunto')), backgroundColor: Colors.red),
       );
     }
   }

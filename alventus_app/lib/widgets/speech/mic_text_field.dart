@@ -6,6 +6,7 @@ import 'speech_service.dart';
 import 'tts_service.dart';
 import 'local_dictation.dart';
 import 'dictation_formatter.dart';
+import '../../utils/app_messages.dart';
 
 /// Campo de texto con botón de micrófono integrado.
 ///
@@ -539,8 +540,8 @@ class _MicTextFieldState extends State<MicTextField> {
       if (hasMicPermission != true) {
         if (hasMicPermission == false) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No se pudo acceder al micrófono.'),
+            SnackBar(
+              content: Text(Msg.of('no_se_pudo_acceder_al_microfono')),
               backgroundColor: Colors.orange,
             ),
           );
@@ -555,10 +556,9 @@ class _MicTextFieldState extends State<MicTextField> {
 
       if (!loaded) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'No se pudo descargar el modelo de dictado. Comprueba tu '
-              'conexión e inténtalo de nuevo.',
+              Msg.of('no_se_pudo_descargar_el_modelo_de'),
             ),
             backgroundColor: Colors.orange,
           ),
@@ -592,8 +592,8 @@ class _MicTextFieldState extends State<MicTextField> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo acceder al micrófono.'),
+        SnackBar(
+          content: Text(Msg.of('no_se_pudo_acceder_al_microfono')),
           backgroundColor: Colors.orange,
         ),
       );

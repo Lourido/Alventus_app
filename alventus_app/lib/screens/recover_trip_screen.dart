@@ -128,7 +128,7 @@ class _RecoverTripScreenState extends State<RecoverTripScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['error']?.toString() ?? 'Error al recuperar el viaje'),
+          content: Text(result['error']?.toString() ?? Msg.of('error_al_recuperar_el_viaje')),
           backgroundColor: Colors.red,
         ),
       );

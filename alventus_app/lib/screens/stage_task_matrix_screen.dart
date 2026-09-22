@@ -271,11 +271,8 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Falta terminar de actualizar la app'),
-          content: const Text(
-            'Cierra la app del todo y vuelve a abrirla con cobertura. '
-            'Después ya podrás generar el PDF.',
-          ),
+          title: Text(Msg.of('falta_terminar_de_actualizar_la_app')),
+          content: Text(Msg.of('cierra_la_app_del_todo_y_vuelve')),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
@@ -373,7 +370,7 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
     if (result != 'ok') {
       final motivo = result.startsWith('error:') ? result.substring(6).trim() : result;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se ha podido generar el PDF: $motivo'), backgroundColor: Colors.red),
+        SnackBar(content: Text(Msg.of('no_se_ha_podido_generar_el_pdf', {'detalle': '$motivo'})), backgroundColor: Colors.red),
       );
       return;
     }
@@ -440,7 +437,7 @@ class _StageTaskMatrixScreenState extends State<StageTaskMatrixScreen> {
       if (outcome.startsWith('error')) {
         final motivo = outcome.substring(outcome.indexOf(':') + 1).trim();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se ha podido guardar el PDF: $motivo'), backgroundColor: Colors.red),
+          SnackBar(content: Text(Msg.of('no_se_ha_podido_guardar_el_pdf', {'detalle': '$motivo'})), backgroundColor: Colors.red),
         );
       } else {
         final mensaje = switch (outcome) {

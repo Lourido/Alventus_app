@@ -189,7 +189,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['error'] ?? 'Error al actualizar'),
+            content: Text(result['error'] ?? Msg.of('error_al_actualizar')),
             backgroundColor: Colors.red,
           ),
         );
@@ -305,8 +305,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     if (picked.hour == 0 && picked.minute == 0) {
       // Las 00:00 se toman como "sin hora" (ver Task.startTimeOf).
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Pon una hora distinta de las 00:00 (por ejemplo, 00:05).'),
+        SnackBar(
+          content: Text(Msg.of('pon_una_hora_distinta_de_las_00')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -383,10 +383,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           if (!mounted) return;
           setState(() => _task = _taskWithStart(fechaDesde, previous.avisoAntelacion));
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text(
-                'Hora guardada, pero el aviso no: falta actualizar el módulo '
-                'de Alventus en el servidor de Odoo.',
+                Msg.of('hora_guardada_pero_el_aviso_no_falta'),
               ),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 6),
@@ -585,7 +584,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('¡Cachis! Error al seleccionar imagen: $e'),
+            content: Text(Msg.of('cachis_error_al_seleccionar_imagen', {'detalle': '$e'})),
             backgroundColor: Colors.red,
           ),
         );
@@ -623,7 +622,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('¡Cachis! Error al seleccionar archivo: $e'),
+            content: Text(Msg.of('cachis_error_al_seleccionar_archivo', {'detalle': '$e'})),
             backgroundColor: Colors.red,
           ),
         );
@@ -749,7 +748,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['error'] ?? '¡Cachis! Error al subir archivo'),
+            content: Text(result['error'] ?? Msg.of('cachis_error_al_subir_archivo')),
             backgroundColor: Colors.red,
           ),
         );
@@ -802,9 +801,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         Navigator.pop(context); // Cerrar indicador
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-                'Archivo guardado en tu teléfono. Lo subiré cuando haya conexión.'),
+                Msg.of('archivo_guardado_en_tu_telefono_lo_subire')),
             backgroundColor: Colors.orange,
           ),
         );
@@ -817,7 +816,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('¡Cachis! Error al guardar archivo localmente: $e'),
+            content: Text(Msg.of('cachis_error_al_guardar_archivo_localmente', {'detalle': '$e'})),
             backgroundColor: Colors.red,
           ),
         );
@@ -867,7 +866,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(result['error'] ?? '¡Cachis! Error al borrar adjunto'),
+          content: Text(result['error'] ?? Msg.of('cachis_error_al_borrar_adjunto')),
           backgroundColor: Colors.red,
         ),
       );
@@ -898,8 +897,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           if (mounted) {
             Navigator.pop(context); // Cerrar indicador
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Ya lo siento. No puedo descargar el archivo'),
+              SnackBar(
+                content: Text(Msg.of('ya_lo_siento_no_puedo_descargar_el')),
                 backgroundColor: Colors.red,
               ),
             );
@@ -914,8 +913,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           if (mounted) {
             Navigator.pop(context); // Cerrar indicador
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('El archivo está vacío'),
+              SnackBar(
+                content: Text(Msg.of('el_archivo_esta_vacio')),
                 backgroundColor: Colors.red,
               ),
             );
@@ -931,8 +930,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           final opened = await openBytesOnWeb(bytes, attachment.name);
           if (!opened && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('¡Cachis! No puedo abrir el archivo'),
+              SnackBar(
+                content: Text(Msg.of('cachis_no_puedo_abrir_el_archivo')),
                 backgroundColor: Colors.red,
               ),
             );
@@ -963,7 +962,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         if (openResult.type != ResultType.done) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('¡Cachis! No puedo abrir el archivo: ${openResult.message}'),
+              content: Text(Msg.of('cachis_no_puedo_abrir_el_archivo_2', {'detalle': '${openResult.message}'})),
               backgroundColor: Colors.red,
             ),
           );
@@ -973,7 +972,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
           Navigator.pop(context); // Cerrar indicador
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(result['error'] ?? '¡Cachis! Error al descargar el archivo'),
+              content: Text(result['error'] ?? Msg.of('cachis_error_al_descargar_el_archivo')),
               backgroundColor: Colors.red,
             ),
           );
@@ -984,7 +983,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
         Navigator.pop(context); // Cerrar indicador
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('¡Cachis! Error al abrir el archivo: $e'),
+            content: Text(Msg.of('cachis_error_al_abrir_el_archivo', {'detalle': '$e'})),
             backgroundColor: Colors.red,
           ),
         );

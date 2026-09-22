@@ -3,6 +3,7 @@ import '../services/odoo_service.dart';
 import '../models/project.dart';
 import 'package:alventus_app/widgets/speech/mic_text_field.dart';
 import 'stages_screen.dart';
+import '../utils/app_messages.dart';
 
 enum CreateTripMode { fromCalendar, fromScratch }
 
@@ -79,8 +80,8 @@ class _CreateTripFormScreenState extends State<CreateTripFormScreen> {
 
     if (_dateFrom == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Selecciona la fecha de inicio'),
+        SnackBar(
+          content: Text(Msg.of('selecciona_la_fecha_de_inicio')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -145,7 +146,7 @@ class _CreateTripFormScreenState extends State<CreateTripFormScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error al crear el viaje: $e'),
+          content: Text(Msg.of('error_al_crear_el_viaje', {'detalle': '$e'})),
           backgroundColor: Colors.red,
         ),
       );
