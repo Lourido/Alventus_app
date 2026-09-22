@@ -57,7 +57,7 @@
 // tocarlas aquí -- ver pwa-status.md para el porqué de este último
 // caso concreto.
 
-const CACHE_NAME = 'alventus-offline-v6';
+const CACHE_NAME = 'alventus-offline-v7';
 
 // Rutas relativas a la carpeta donde vive este propio archivo (que es
 // la misma carpeta donde se despliega toda la app), para que funcionen
@@ -183,6 +183,23 @@ self.addEventListener('fetch', (event) => {
         // trip_pdf.js viejo (el PDF salía sin documentos). Las
         // navegaciones (abrir la app) se dejan tal cual: el navegador ya
         // las revalida y no admiten cambiar este ajuste.
+        // Abrir la app por la dirección de la CARPETA (".../static/app/",
+        // sin index.html): Odoo no sabe servir una carpeta y contesta
+        // "File app not found". Pasaba al tocar un aviso con la app
+        // cerrada en el iPhone. Se pide index.html en su lugar.
+        if (request.mode === 'navigate' && new URL(request.url).pathname.endsWith('/')) {
+          const indexUrl = new URL('index.html', request.url);
+          indexUrl.search = new URL(request.url).search;
+          try {
+            const indexResponse = await fetch(indexUrl.href, { cache: 'no-cache' });
+            if (indexResponse && indexResponse.ok) return indexResponse;
+          } catch (e) {
+            const cachedIndex = await caches.match('index.html', { ignoreSearch: true });
+            if (cachedIndex) return cachedIndex;
+            throw e;
+          }
+        }
+
         let networkRequest = request;
         if (request.mode !== 'navigate') {
           try {
@@ -286,7 +303,9 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (self.clients.openWindow) {
-        return self.clients.openWindow(self.registration.scope);
+        // Con index.html al final: la dirección de la carpeta sola no la
+        // sabe servir Odoo (ver el comentario en el evento "fetch").
+        return self.clients.openWindow(new URL('index.html', self.registration.scope).href);
       }
       return undefined;
     })()
